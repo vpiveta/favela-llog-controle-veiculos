@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="page-head">
+  <div><h2>Novo abastecimento</h2><p>Informe o valor e fotografe a nota.</p></div>
+</header>
+<form method="post" enctype="multipart/form-data" class="panel form-grid mobile-form" id="receiptForm">
+  {% if current_user.is_admin %}
+  <label>Veículo<select name="vehicle_id" required><option value="">Selecione</option>{% for v in vehicles %}<option value="{{v.id}}">{{v.plate}} · {{v.brand}} {{v.model}}</option>{% endfor %}</select></label>
+  {% else %}
+  <div class="vehicle-summary wide"><small>Moto atual</small><strong>{{ vehicle.brand ~ ' ' ~ vehicle.model if vehicle else 'Sem moto vinculada' }}</strong><span>{{ vehicle.plate if vehicle else '' }}</span></div>
+  {% endif %}
+  <label>Data<input type="date" name="expense_date" value="{{today}}" required></label>
+  <label>Valor (R$)<input name="amount" inputmode="decimal" placeholder="0,00" required></label>
+  <label>Combustível<select name="fuel_type"><option value="GASOLINE">Gasolina</option><option value="ETHANOL">Etanol</option></select></label>
+  <label>Litros <small class="optional">opcional</small><input name="liters" inputmode="decimal" placeholder="0,00"></label>
+  <label>Posto <small class="optional">opcional</small><input name="station" autocomplete="organization"></label>
+  <label class="wide camera-field">
+    <span>Foto da nota</span>
+    <span class="camera-button">📷 Abrir câmera</span>
+    <input class="camera-input" type="file" name="receipt" accept="image/*" capture="environment" required data-preview="receiptPreview">
+    <small>A câmera traseira será aberta no celular. Também é possível escolher uma foto existente.</small>
+  </label>
+  <img id="receiptPreview" class="receipt-preview" alt="Pré-visualização da nota" hidden>
+  <button class="wide primary-large">Salvar abastecimento</button>
+</form>
+{% endblock %}
