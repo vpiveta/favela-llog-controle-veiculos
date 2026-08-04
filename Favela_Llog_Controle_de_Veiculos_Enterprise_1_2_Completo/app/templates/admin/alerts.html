@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="page-head"><div><h2>Central de Alertas</h2><p>O sistema identifica os alertas; o envio é feito pelo WhatsApp normal com a mensagem pronta.</p></div></header>
+<div class="grid2 alert-layout">
+  <section class="panel">
+    <h3>Alertas ativos</h3>
+    {% for a in alerts %}
+      <article class="alert-card {{a.level}}">
+        <div><b>{{a.title}}</b><span>{{a.vehicle.plate}} · {{a.detail}}</span></div>
+        {% if a.whatsapp_links %}
+        <div class="whatsapp-actions">
+          {% for link in a.whatsapp_links %}<a class="btn whatsapp" href="{{link.url}}" target="_blank" rel="noopener">Enviar para {{link.name}}</a>{% endfor %}
+        </div>
+        {% else %}<small class="muted">Cadastre um contato de WhatsApp para preparar o envio.</small>{% endif %}
+      </article>
+    {% else %}<p class="muted">Nenhum alerta ativo.</p>{% endfor %}
+  </section>
+  <div>
+    <form method="post" class="panel form-grid">
+      <h3 class="wide">Contato para alertas</h3>
+      <label>Nome<input name="name" required></label>
+      <label>WhatsApp com DDD<input type="tel" name="phone" inputmode="tel" placeholder="(11) 99999-9999" required></label>
+      <button class="wide">Adicionar contato</button>
+    </form>
+    <section class="panel"><h3>Contatos cadastrados</h3>{% for r in recipients %}<div class="list-row"><b>{{r.name}}</b><span>{{r.phone}}</span></div>{% else %}<p class="muted">Nenhum contato cadastrado.</p>{% endfor %}</section>
+  </div>
+</div>
+<section class="panel notice"><b>Sem mensalidade e sem API</b><p>O botão abre o WhatsApp ou WhatsApp Web com a mensagem preenchida. Para segurança da conta, a pessoa confirma o envio tocando em “Enviar”.</p></section>
+{% endblock %}
