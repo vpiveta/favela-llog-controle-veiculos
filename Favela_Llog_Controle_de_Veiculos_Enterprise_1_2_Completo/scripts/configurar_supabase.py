@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import secrets
 import sys
-from getpass import getpass
 
-from common import load_env_file, normalize_database_url, set_project_directory, write_env
+from scripts.common import load_env_file, normalize_database_url, set_project_directory, write_env
 
 
 def main() -> int:
@@ -15,7 +14,9 @@ def main() -> int:
     print("=" * 62)
     print("Cole a Connection String do Supabase (Session Pooler recomendado).")
     print("A informacao sera salva apenas no arquivo local .env, ignorado pelo Git.")
-    database_url = normalize_database_url(getpass("DATABASE_URL: "))
+    print("\nIMPORTANTE: a conexao ficara visivel enquanto voce cola ou digita.")
+    print("Use Ctrl+V ou clique com o botao direito dentro desta janela.")
+    database_url = normalize_database_url(input("DATABASE_URL: "))
     if not database_url.startswith(("postgresql://", "postgresql+psycopg://")):
         print("ERRO: a conexao precisa iniciar com postgresql://")
         return 1

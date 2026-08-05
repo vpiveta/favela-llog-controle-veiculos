@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 
-from common import load_env_file, set_project_directory
+from scripts.common import load_env_file, set_project_directory
 
 
 def main() -> int:

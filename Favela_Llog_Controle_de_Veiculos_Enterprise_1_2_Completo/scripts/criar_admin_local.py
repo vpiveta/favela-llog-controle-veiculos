@@ -4,7 +4,7 @@ import os
 import sys
 from getpass import getpass
 
-from common import set_project_directory
+from scripts.common import set_project_directory
 
 
 def main() -> int:

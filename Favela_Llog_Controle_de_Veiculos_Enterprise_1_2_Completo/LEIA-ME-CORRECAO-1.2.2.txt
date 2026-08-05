@@ -1,0 +1,11 @@
+FAVELA LLOG CONTROLE DE VEICULOS - CORRECAO 1.2.2
+
+Correcao aplicada:
+- O campo DATABASE_URL agora fica visivel e aceita digitacao/colagem normal.
+- Use Ctrl+V ou clique com o botao direito para colar no Prompt.
+- A conexao continua sendo salva somente no arquivo local .env, ignorado pelo Git.
+
+Ordem recomendada:
+1. CONFIGURAR_SUPABASE.bat
+2. TESTAR_BANCO.bat
+3. CRIAR_ADMIN_SUPABASE.bat

@@ -3,6 +3,15 @@ setlocal
 cd /d "%~dp0"
 title Preparar Ambiente - Favela Llog Controle de Veiculos
 
+if not exist "app\__init__.py" (
+  echo ERRO: pasta app nao encontrada ao lado deste BAT.
+  echo Extraia o pacote completo e execute o BAT dentro da pasta do projeto.
+  pause
+  exit /b 1
+)
+
+set "PYTHONPATH=%CD%"
+
 where py >nul 2>nul
 if errorlevel 1 (
   echo ERRO: Python nao encontrado. Instale Python 3.11, 3.12 ou 3.13.
