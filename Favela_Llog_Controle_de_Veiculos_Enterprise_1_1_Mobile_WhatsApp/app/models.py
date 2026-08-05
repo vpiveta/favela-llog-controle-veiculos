@@ -107,8 +107,16 @@ class StoredFile(db.Model):
     entity_type = db.Column(db.String(40), nullable=False)
     entity_id = db.Column(db.Integer, nullable=False, index=True)
     uploaded_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    content = db.Column(db.LargeBinary, nullable=False)
+    # Arquivos antigos podem continuar no PostgreSQL. Novos arquivos usam Supabase Storage.
+    content = db.Column(db.LargeBinary, nullable=False, default=b'')
+    storage_bucket = db.Column(db.String(120))
+    storage_path = db.Column(db.String(600), index=True)
+    storage_migrated_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    @property
+    def is_in_storage(self):
+        return bool(self.storage_bucket and self.storage_path)
     uploaded_by = db.relationship('User')
 
 class DailyChecklist(db.Model):

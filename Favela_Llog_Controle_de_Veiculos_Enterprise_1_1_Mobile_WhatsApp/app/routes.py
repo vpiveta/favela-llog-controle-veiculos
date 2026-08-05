@@ -9,6 +9,7 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 from flask_login import current_user, login_required, login_user, logout_user
 from werkzeug.utils import secure_filename
 from .models import db, User, Vehicle, Expense, FuelDetail, MaintenanceDetail, OilChange, AlertRecipient, StoredFile, DailyChecklist, AdminNotification, OilAlertStatus, AuditLog
+from .storage import is_configured as storage_is_configured, upload_bytes, download_bytes, SupabaseStorageError
 
 auth_bp = Blueprint('auth', __name__)
 main_bp = Blueprint('main', __name__)
@@ -36,11 +37,24 @@ def store_uploaded_file(file, category, entity_type, entity_id, images_only=Fals
     if len(data) > current_app.config.get('MAX_CONTENT_LENGTH', 8 * 1024 * 1024):
         raise ValueError('Arquivo muito grande.')
     token = uuid.uuid4().hex
+    safe_name = secure_filename(file.filename) or f'{category}.{ext}'
+    mime_type = file.mimetype or ('image/jpeg' if images_only else 'application/octet-stream')
+    storage_bucket = None
+    storage_path = None
+    db_content = data
+    if storage_is_configured():
+        storage_path = f"{entity_type.lower()}/{entity_id}/{category.lower()}/{token}-{safe_name}"
+        result = upload_bytes(storage_path, data, mime_type)
+        storage_bucket = result.bucket
+        storage_path = result.path
+        # Mantém o banco leve. O campo continua com bytes vazios por compatibilidade com bancos existentes.
+        db_content = b''
     stored = StoredFile(
-        token=token, original_name=secure_filename(file.filename) or f'{category}.{ext}',
-        mime_type=file.mimetype or ('image/jpeg' if images_only else 'application/octet-stream'),
+        token=token, original_name=safe_name, mime_type=mime_type,
         file_size=len(data), category=category, entity_type=entity_type, entity_id=entity_id,
-        uploaded_by_id=current_user.id, content=data
+        uploaded_by_id=current_user.id, content=db_content,
+        storage_bucket=storage_bucket, storage_path=storage_path,
+        storage_migrated_at=datetime.utcnow() if storage_path else None,
     )
     db.session.add(stored)
     return token
@@ -179,7 +193,16 @@ def expense_receipt(expense_id):
         return ('', 403)
     stored = StoredFile.query.filter_by(entity_type='EXPENSE', entity_id=exp.id).order_by(StoredFile.id.desc()).first()
     if stored:
-        return send_file(BytesIO(stored.content), mimetype=stored.mime_type, download_name=stored.original_name, as_attachment=request.args.get('download') == '1')
+        try:
+            if stored.is_in_storage:
+                data, mime = download_bytes(stored.storage_bucket, stored.storage_path)
+            else:
+                data, mime = stored.content, stored.mime_type
+            if data:
+                return send_file(BytesIO(data), mimetype=mime or stored.mime_type, download_name=stored.original_name, as_attachment=request.args.get('download') == '1')
+        except SupabaseStorageError as exc:
+            current_app.logger.exception('Falha ao abrir comprovante no Storage')
+            flash(str(exc), 'danger')
     legacy = Path(current_app.config['UPLOAD_FOLDER']) / (exp.receipt_path or '')
     if legacy.is_file():
         return send_from_directory(current_app.config['UPLOAD_FOLDER'], legacy.name, as_attachment=request.args.get('download') == '1')
@@ -197,7 +220,17 @@ def stored_file(token):
     stored = StoredFile.query.filter_by(token=token).first_or_404()
     if not current_user.is_admin and stored.uploaded_by_id != current_user.id:
         return ('', 403)
-    return send_file(BytesIO(stored.content), mimetype=stored.mime_type, download_name=stored.original_name, as_attachment=request.args.get('download') == '1')
+    try:
+        if stored.is_in_storage:
+            data, mime = download_bytes(stored.storage_bucket, stored.storage_path)
+        else:
+            data, mime = stored.content, stored.mime_type
+        if not data:
+            abort(404)
+        return send_file(BytesIO(data), mimetype=mime or stored.mime_type, download_name=stored.original_name, as_attachment=request.args.get('download') == '1')
+    except SupabaseStorageError as exc:
+        current_app.logger.exception('Falha ao abrir arquivo no Storage')
+        abort(503, description=str(exc))
 
 @main_bp.route('/checklist/new', methods=['GET','POST'])
 @login_required
@@ -305,7 +338,17 @@ def checklist_share(token):
 def checklist_share_file(token, file_token):
     checklist = DailyChecklist.query.filter_by(share_token=token).first_or_404()
     stored = StoredFile.query.filter_by(token=file_token, entity_type='CHECKLIST', entity_id=checklist.id).first_or_404()
-    return send_file(BytesIO(stored.content), mimetype=stored.mime_type, download_name=stored.original_name, as_attachment=request.args.get('download') == '1')
+    try:
+        if stored.is_in_storage:
+            data, mime = download_bytes(stored.storage_bucket, stored.storage_path)
+        else:
+            data, mime = stored.content, stored.mime_type
+        if not data:
+            abort(404)
+        return send_file(BytesIO(data), mimetype=mime or stored.mime_type, download_name=stored.original_name, as_attachment=request.args.get('download') == '1')
+    except SupabaseStorageError as exc:
+        current_app.logger.exception('Falha ao abrir arquivo no Storage')
+        abort(503, description=str(exc))
 
 @main_bp.route('/admin/checklists')
 @login_required
