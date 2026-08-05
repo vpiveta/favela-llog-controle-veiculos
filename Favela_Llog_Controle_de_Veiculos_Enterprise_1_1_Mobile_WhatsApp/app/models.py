@@ -48,7 +48,7 @@ class Expense(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False)
-    created_by = db.relationship('User')
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
     vehicle = db.relationship('Vehicle', back_populates='expenses')
     fuel = db.relationship('FuelDetail', back_populates='expense', uselist=False, cascade='all, delete-orphan')
     maintenance = db.relationship('MaintenanceDetail', back_populates='expense', uselist=False, cascade='all, delete-orphan')
