@@ -1,0 +1,144 @@
+from datetime import date, datetime
+from flask_login import UserMixin
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+
+db = SQLAlchemy()
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    email = db.Column(db.String(160))
+    phone = db.Column(db.String(30))
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default='DRIVER')
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    must_change_password = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    vehicle = db.relationship('Vehicle', back_populates='driver', uselist=False)
+
+    def set_password(self, password): self.password_hash = generate_password_hash(password)
+    def check_password(self, password): return check_password_hash(self.password_hash, password)
+    @property
+    def is_admin(self): return self.role == 'ADMIN'
+
+class Vehicle(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    plate = db.Column(db.String(10), unique=True, nullable=False, index=True)
+    brand = db.Column(db.String(80), nullable=False)
+    model = db.Column(db.String(100), nullable=False)
+    year = db.Column(db.Integer)
+    current_km = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(30), default='AVAILABLE')
+    photo = db.Column(db.String(255))
+    driver_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True)
+    driver = db.relationship('User', back_populates='vehicle')
+    expenses = db.relationship('Expense', back_populates='vehicle', cascade='all, delete-orphan')
+    oil_changes = db.relationship('OilChange', back_populates='vehicle', cascade='all, delete-orphan')
+
+class Expense(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    expense_type = db.Column(db.String(20), nullable=False)  # FUEL / MAINTENANCE
+    expense_date = db.Column(db.Date, nullable=False, default=date.today)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    odometer = db.Column(db.Integer)
+    receipt_path = db.Column(db.String(255), nullable=False)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False)
+    created_by = db.relationship('User')
+    vehicle = db.relationship('Vehicle', back_populates='expenses')
+    fuel = db.relationship('FuelDetail', back_populates='expense', uselist=False, cascade='all, delete-orphan')
+    maintenance = db.relationship('MaintenanceDetail', back_populates='expense', uselist=False, cascade='all, delete-orphan')
+
+class FuelDetail(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    liters = db.Column(db.Numeric(10, 2))
+    fuel_type = db.Column(db.String(30), default='GASOLINE')
+    station = db.Column(db.String(160))
+    expense_id = db.Column(db.Integer, db.ForeignKey('expense.id'), unique=True, nullable=False)
+    expense = db.relationship('Expense', back_populates='fuel')
+
+class MaintenanceDetail(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    start_date = db.Column(db.Date, nullable=False)
+    same_day = db.Column(db.Boolean, default=True)
+    end_date = db.Column(db.Date)
+    description = db.Column(db.Text, nullable=False)
+    workshop = db.Column(db.String(160))
+    status = db.Column(db.String(30), default='COMPLETED')
+    expense_id = db.Column(db.Integer, db.ForeignKey('expense.id'), unique=True, nullable=False)
+    expense = db.relationship('Expense', back_populates='maintenance')
+
+class OilChange(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    change_date = db.Column(db.Date, nullable=False)
+    odometer = db.Column(db.Integer, nullable=False)
+    next_change_km = db.Column(db.Integer, nullable=False)
+    next_change_date = db.Column(db.Date)
+    oil_type = db.Column(db.String(100))
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False)
+    expense_id = db.Column(db.Integer, db.ForeignKey('expense.id'))
+    vehicle = db.relationship('Vehicle', back_populates='oil_changes')
+
+class AlertRecipient(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(160))
+    phone = db.Column(db.String(30))
+    active = db.Column(db.Boolean, default=True)
+
+
+class StoredFile(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    original_name = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(120), nullable=False)
+    file_size = db.Column(db.Integer, nullable=False, default=0)
+    category = db.Column(db.String(40), nullable=False)
+    entity_type = db.Column(db.String(40), nullable=False)
+    entity_id = db.Column(db.Integer, nullable=False, index=True)
+    uploaded_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.LargeBinary, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    uploaded_by = db.relationship('User')
+
+class DailyChecklist(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    checklist_date = db.Column(db.Date, nullable=False, default=date.today, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    driver_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False, index=True)
+    owner_driver_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    borrowed_vehicle = db.Column(db.Boolean, default=False, nullable=False)
+    borrow_reason = db.Column(db.Text)
+    tires_ok = db.Column(db.Boolean, nullable=False)
+    brakes_ok = db.Column(db.Boolean, nullable=False)
+    lights_ok = db.Column(db.Boolean, nullable=False)
+    indicators_ok = db.Column(db.Boolean, nullable=False)
+    mirrors_ok = db.Column(db.Boolean, nullable=False)
+    horn_ok = db.Column(db.Boolean, nullable=False)
+    chain_ok = db.Column(db.Boolean, nullable=False)
+    general_condition = db.Column(db.String(30), nullable=False)
+    has_damage = db.Column(db.Boolean, default=False, nullable=False)
+    damage_description = db.Column(db.Text)
+    status = db.Column(db.String(30), default='COMPLETED', nullable=False)
+    whatsapp_sent_at = db.Column(db.DateTime)
+    whatsapp_confirmed_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    share_token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    driver = db.relationship('User', foreign_keys=[driver_id])
+    owner_driver = db.relationship('User', foreign_keys=[owner_driver_id])
+    vehicle = db.relationship('Vehicle')
+    whatsapp_confirmed_by = db.relationship('User', foreign_keys=[whatsapp_confirmed_by_id])
+
+class AdminNotification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    notification_type = db.Column(db.String(40), nullable=False)
+    title = db.Column(db.String(180), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    checklist_id = db.Column(db.Integer, db.ForeignKey('daily_checklist.id'))
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    checklist = db.relationship('DailyChecklist')
