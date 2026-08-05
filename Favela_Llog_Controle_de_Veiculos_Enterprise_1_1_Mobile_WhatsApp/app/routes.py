@@ -91,7 +91,9 @@ def dashboard():
     oil = sum((Decimal(e.amount) for e in expenses if e.maintenance and e.oil_changes), Decimal('0'))
     maintenance_total = sum((Decimal(e.amount) for e in expenses if e.expense_type == 'MAINTENANCE'), Decimal('0'))
     maintenance_other = maintenance_total - oil
-    alerts = build_oil_alerts(current_user.vehicle.id if not current_user.is_admin and current_user.vehicle else None)
+    vehicle_scope = current_user.vehicle.id if not current_user.is_admin and current_user.vehicle else None
+    oil_statuses = build_oil_statuses(vehicle_scope)
+    alerts = build_oil_alerts(vehicle_scope)
     vehicles = Vehicle.query.order_by(Vehicle.plate).all() if current_user.is_admin else ([current_user.vehicle] if current_user.vehicle else [])
     today_checklists = DailyChecklist.query.filter_by(checklist_date=date.today(), is_deleted=False)
     if not current_user.is_admin:
@@ -108,7 +110,7 @@ def dashboard():
             totals[e.created_by.name]=totals.get(e.created_by.name, Decimal('0'))+Decimal(e.amount)
         driver_costs=sorted(totals.items(), key=lambda x:x[1], reverse=True)[:10]
     return render_template('dashboard.html', expenses=expenses[:8], total=total, fuel=fuel,
-        maint=maintenance_other, oil=oil, alerts=alerts, vehicles=vehicles,
+        maint=maintenance_other, oil=oil, alerts=alerts, oil_statuses=oil_statuses, vehicles=vehicles,
         today_checklist_count=today_checklist_count, pending_notifications=pending_notifications,
         recent_checklists=recent_checklists, driver_costs=driver_costs)
 
@@ -273,7 +275,8 @@ def checklist_detail(checklist_id):
     recipients = User.query.filter_by(role='DRIVER', active=True).filter(User.phone.isnot(None)).order_by(User.name).all()
     base_url = os.getenv('ONLINE_URL') or request.url_root.rstrip('/')
     share_url = f"{base_url}{url_for('main.checklist_share', token=checklist.share_token)}"
-    message = quote(f"🏍️ *Favela Llog Controle de Veículos*\n\n*Uso temporário de moto*\nMotorista: {checklist.driver.name}\nMoto: {checklist.vehicle.brand} {checklist.vehicle.model}\nPlaca: {checklist.vehicle.plate}\nResponsável original: {checklist.owner_driver.name if checklist.owner_driver else 'Sem vínculo'}\nMotivo: {checklist.borrow_reason or '-'}\nData: {checklist.checklist_date.strftime('%d/%m/%Y')}\n\nChecklist e imagens: {share_url}")
+    logo_url = f"{base_url}{url_for('static', filename='img/logo.png')}"
+    message = quote(f"{logo_url}\n\n🟡⚫ *FAVELA LLOG*\n*Controle de Veículos*\n\n*Uso temporário de moto*\nMotorista: {checklist.driver.name}\nMoto: {checklist.vehicle.brand} {checklist.vehicle.model}\nPlaca: {checklist.vehicle.plate}\nResponsável original: {checklist.owner_driver.name if checklist.owner_driver else 'Sem vínculo'}\nMotivo: {checklist.borrow_reason or '-'}\nData: {checklist.checklist_date.strftime('%d/%m/%Y')}\nKM do checklist: {checklist.odometer}\n\nChecklist e imagens: {share_url}")
     whatsapp_links=[]
     for recipient in recipients:
         phone=normalize_whatsapp_phone(recipient.phone)
@@ -519,13 +522,20 @@ def normalize_whatsapp_phone(value):
 def whatsapp_message(alert):
     vehicle = alert['vehicle']
     driver = vehicle.driver.name if vehicle.driver else 'Não vinculado'
+    base_url = os.getenv('ONLINE_URL') or request.url_root.rstrip('/')
+    logo_url = f"{base_url}{url_for('static', filename='img/logo.png')}"
     return (
-        "🚨 *Favela Llog Controle de Veículos*\n\n"
-        f"*{alert['title']}*\n"
+        f"{logo_url}\n\n"
+        "🟡⚫ *FAVELA LLOG*\n"
+        "*Controle de Veículos*\n\n"
+        f"🚨 *{alert['title']}*\n"
         f"Moto: {vehicle.brand} {vehicle.model}\n"
         f"Placa: {vehicle.plate}\n"
         f"Motorista: {driver}\n"
-        f"{alert['detail']}\n\n"
+        f"KM da última troca: {alert['base_km']} km\n"
+        f"KM atual: {alert['current_km']} km\n"
+        f"Rodados desde a troca: {alert['traveled_km']} km\n"
+        f"Restam: {max(alert['remaining_km'], 0)} km\n\n"
         "Acesse o sistema para registrar ou acompanhar a manutenção."
     )
 
@@ -553,27 +563,84 @@ def alerts():
     oil_history = OilAlertStatus.query.filter(OilAlertStatus.message_sent_at.isnot(None)).order_by(OilAlertStatus.message_sent_at.desc()).limit(50).all()
     return render_template('admin/alerts.html', alerts=active_alerts, recipients=recipients, system_notifications=system_notifications, oil_history=oil_history)
 
-def build_oil_alerts(vehicle_id=None):
+def build_oil_statuses(vehicle_id=None):
+    """Calcula o ciclo pelo hodômetro lançado nos checklists desde a última troca."""
     q = Vehicle.query
-    if vehicle_id: q = q.filter_by(id=vehicle_id)
-    result=[]
-    for v in q.all():
-        last = OilChange.query.filter_by(vehicle_id=v.id).order_by(OilChange.change_date.desc(), OilChange.id.desc()).first()
-        if not last:
+    if vehicle_id:
+        q = q.filter_by(id=vehicle_id)
+    result = []
+    for vehicle in q.order_by(Vehicle.plate).all():
+        last_change = OilChange.query.filter_by(vehicle_id=vehicle.id).order_by(
+            OilChange.change_date.desc(), OilChange.id.desc()
+        ).first()
+        if not last_change:
+            result.append({
+                'vehicle': vehicle, 'oil_change': None, 'base_km': None,
+                'current_km': vehicle.current_km or 0, 'traveled_km': 0,
+                'remaining_km': 990, 'target_km': None, 'level': 'neutral',
+                'status_label': 'Sem troca registrada',
+            })
             continue
-        # Regra operacional fixa: troca a cada 990 km.
-        expected = last.odometer + 990
-        if last.next_change_km != expected:
-            last.next_change_km = expected
-            db.session.commit()
-        remaining = expected - (v.current_km or 0)
-        if remaining <= 0: level='danger'; title='Troca de óleo vencida'
-        elif remaining <= 50: level='danger'; title='Troca de óleo urgente'
-        elif remaining <= 200: level='warning'; title='Troca de óleo próxima'
-        else: continue
-        status=OilAlertStatus.query.filter_by(vehicle_id=v.id,oil_change_id=last.id,level=level).first()
-        result.append({'level':level,'vehicle':v,'oil_change':last,'title':title,
-            'detail':f"Atual {v.current_km or 0} km · Próxima {expected} km · Restam {remaining} km",
-            'message_sent':bool(status and status.message_sent_at),'sent_at':status.message_sent_at if status else None})
+
+        latest_checklist = DailyChecklist.query.filter(
+            DailyChecklist.vehicle_id == vehicle.id,
+            DailyChecklist.is_deleted.is_(False),
+            DailyChecklist.checklist_date >= last_change.change_date,
+        ).order_by(DailyChecklist.checklist_date.desc(), DailyChecklist.created_at.desc(), DailyChecklist.id.desc()).first()
+
+        current_km = latest_checklist.odometer if latest_checklist else (vehicle.current_km or last_change.odometer)
+        current_km = max(current_km or 0, last_change.odometer)
+        traveled = max(0, current_km - last_change.odometer)
+        remaining = 990 - traveled
+        target = last_change.odometer + 990
+        if remaining <= 0:
+            level, label = 'danger', 'Vencida'
+        elif remaining <= 50:
+            level, label = 'danger', 'Urgente'
+        elif remaining <= 200:
+            level, label = 'warning', 'Atenção'
+        else:
+            level, label = 'success', 'Normal'
+        if last_change.next_change_km != target:
+            last_change.next_change_km = target
+        result.append({
+            'vehicle': vehicle, 'oil_change': last_change,
+            'base_km': last_change.odometer, 'current_km': current_km,
+            'traveled_km': traveled, 'remaining_km': remaining,
+            'target_km': target, 'level': level, 'status_label': label,
+        })
+    if db.session.dirty:
+        db.session.commit()
+    return result
+
+def build_oil_alerts(vehicle_id=None):
+    result = []
+    for status_info in build_oil_statuses(vehicle_id):
+        last = status_info['oil_change']
+        if not last or status_info['remaining_km'] > 200:
+            continue
+        remaining = status_info['remaining_km']
+        if remaining <= 0:
+            title = 'Troca de óleo vencida'
+        elif remaining <= 50:
+            title = 'Troca de óleo urgente'
+        else:
+            title = 'Troca de óleo próxima'
+        status = OilAlertStatus.query.filter_by(
+            vehicle_id=status_info['vehicle'].id,
+            oil_change_id=last.id,
+            level=status_info['level'],
+        ).first()
+        result.append({
+            **status_info,
+            'title': title,
+            'detail': (
+                f"Base {status_info['base_km']} km · Atual {status_info['current_km']} km · "
+                f"Rodados {status_info['traveled_km']} km · "
+                + (f"Restam {remaining} km" if remaining >= 0 else f"Vencida há {abs(remaining)} km")
+            ),
+            'message_sent': bool(status and status.message_sent_at),
+            'sent_at': status.message_sent_at if status else None,
+        })
     return result
 
