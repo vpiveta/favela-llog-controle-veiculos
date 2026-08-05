@@ -110,3 +110,26 @@ document.querySelectorAll('[data-delete-checklist]').forEach(btn=>btn.addEventLi
 
 // Edição de veículos.
 document.querySelectorAll('[data-edit-vehicle]').forEach(btn=>btn.addEventListener('click',()=>{const d=document.getElementById('vehicleDialog'+btn.dataset.editVehicle);if(d)d.showModal();}));
+
+
+// Busca instantânea nas listas administrativas por motorista ou placa.
+document.querySelectorAll('[data-list-search]').forEach((input) => {
+  const targetId = input.dataset.listSearch;
+  const target = document.getElementById(targetId);
+  if (!target) return;
+  const empty = document.querySelector(`[data-search-empty="${targetId}"]`);
+  const filter = () => {
+    const term = (input.value || '').trim().toLocaleLowerCase('pt-BR');
+    const items = Array.from(target.querySelectorAll('[data-search-item]'));
+    let visible = 0;
+    items.forEach((item) => {
+      const text = (item.dataset.searchItem || item.textContent || '').toLocaleLowerCase('pt-BR');
+      const show = !term || text.includes(term);
+      item.hidden = !show;
+      if (show) visible += 1;
+    });
+    if (empty) empty.hidden = visible !== 0;
+  };
+  input.addEventListener('input', filter);
+  input.addEventListener('search', filter);
+});

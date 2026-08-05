@@ -270,7 +270,7 @@ def checklist_detail(checklist_id):
     if not current_user.is_admin and checklist.driver_id != current_user.id:
         return ('',403)
     files = StoredFile.query.filter_by(entity_type='CHECKLIST', entity_id=checklist.id).order_by(StoredFile.id).all()
-    recipients = AlertRecipient.query.filter_by(active=True).order_by(AlertRecipient.name).all()
+    recipients = User.query.filter_by(role='DRIVER', active=True).filter(User.phone.isnot(None)).order_by(User.name).all()
     base_url = os.getenv('ONLINE_URL') or request.url_root.rstrip('/')
     share_url = f"{base_url}{url_for('main.checklist_share', token=checklist.share_token)}"
     message = quote(f"🏍️ *Favela Llog Controle de Veículos*\n\n*Uso temporário de moto*\nMotorista: {checklist.driver.name}\nMoto: {checklist.vehicle.brand} {checklist.vehicle.model}\nPlaca: {checklist.vehicle.plate}\nResponsável original: {checklist.owner_driver.name if checklist.owner_driver else 'Sem vínculo'}\nMotivo: {checklist.borrow_reason or '-'}\nData: {checklist.checklist_date.strftime('%d/%m/%Y')}\n\nChecklist e imagens: {share_url}")
@@ -542,28 +542,12 @@ def attach_whatsapp_links(alerts, recipients):
                 })
     return alerts
 
-@main_bp.route('/admin/alerts', methods=['GET','POST'])
+@main_bp.route('/admin/alerts')
 @login_required
 @admin_required
 def alerts():
-    if request.method == 'POST':
-        try:
-            phone = normalize_whatsapp_phone(request.form.get('phone'))
-            if len(phone) < 12:
-                raise ValueError('Informe um WhatsApp válido com DDD.')
-            recipient = AlertRecipient(
-                name=request.form['name'].strip(),
-                phone=phone,
-                # Mantém compatibilidade com bancos antigos que exigiam e-mail.
-                email=f'{phone}@whatsapp.local'
-            )
-            db.session.add(recipient)
-            db.session.commit()
-            flash('Contato de WhatsApp adicionado.', 'success')
-        except Exception as exc:
-            db.session.rollback()
-            flash(str(exc), 'danger')
-    recipients = AlertRecipient.query.filter_by(active=True).order_by(AlertRecipient.name).all()
+    # Contatos derivados dos motoristas ativos cadastrados no sistema.
+    recipients = User.query.filter_by(role='DRIVER', active=True).filter(User.phone.isnot(None)).order_by(User.name).all()
     active_alerts = attach_whatsapp_links(build_oil_alerts(), recipients)
     system_notifications = AdminNotification.query.order_by(AdminNotification.created_at.desc()).limit(100).all()
     oil_history = OilAlertStatus.query.filter(OilAlertStatus.message_sent_at.isnot(None)).order_by(OilAlertStatus.message_sent_at.desc()).limit(50).all()

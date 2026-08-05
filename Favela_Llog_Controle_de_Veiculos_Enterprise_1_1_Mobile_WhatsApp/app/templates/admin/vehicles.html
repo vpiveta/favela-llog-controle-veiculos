@@ -12,7 +12,7 @@
     <button class="wide">Cadastrar veículo</button>
   </form>
   <section class="panel fleet-panel">
-    <div class="section-head"><div><h3>Frota cadastrada</h3><p class="muted">A seleção da moto utiliza placa e motorista responsável.</p></div><span class="count-pill">{{vehicles|length}} motos</span></div>
+    <div class="section-head"><div><h3>Frota cadastrada</h3><p class="muted">A seleção da moto utiliza placa e motorista responsável.</p></div><span class="count-pill">{{vehicles|length}} motos</span></div><label class="list-search">Buscar motorista ou placa<input type="search" placeholder="Ex.: João ou ABC1D23" data-list-search="vehiclesList"></label>
     <div class="vehicle-list">
     {% for v in vehicles %}
       <article class="vehicle-card vehicle-card-row">
