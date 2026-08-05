@@ -5,10 +5,10 @@
   <label class="wide">Moto utilizada
     <select name="vehicle_id" id="checklistVehicle" data-own-vehicle="{{own_vehicle.id if own_vehicle else ''}}" required>
       <option value="">Selecione</option>
-      {% for v in vehicles %}<option value="{{v.id}}" data-owner="{{v.driver.name if v.driver else ''}}" {% if own_vehicle and v.id==own_vehicle.id %}selected{% endif %}>{{v.plate}} · {{v.brand}} {{v.model}}{% if v.driver %} · Responsável: {{v.driver.name}}{% endif %}</option>{% endfor %}
+      {% for v in vehicles %}<option value="{{v.id}}" {% if own_vehicle and v.id==own_vehicle.id %}selected{% endif %}>{{v.plate}} · {{v.brand}} {{v.model}}</option>{% endfor %}
     </select>
   </label>
-  <label class="wide" id="borrowReasonWrap" hidden>Motivo para utilizar a moto de outro motorista
+  <div class="wide borrow-summary" id="borrowSummary" hidden></div><label class="wide" id="borrowReasonWrap" hidden>Motivo para utilizar a moto de outro motorista
     <textarea name="borrow_reason" id="borrowReason" placeholder="Explique por que está utilizando esta moto"></textarea>
   </label>
   <h3 class="wide section-title">Conferência dos itens</h3>

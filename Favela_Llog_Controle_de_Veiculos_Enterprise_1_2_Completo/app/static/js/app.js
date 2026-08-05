@@ -37,6 +37,8 @@ function syncBorrowedVehicle(){
   const borrowed=String(checklistVehicle.value)!==String(checklistVehicle.dataset.ownVehicle||'');
   borrowReasonWrap.hidden=!borrowed;
   if(borrowReason)borrowReason.required=borrowed;
+  const summary=document.getElementById('borrowSummary');
+  if(summary){ summary.hidden=!borrowed; if(borrowed){ summary.innerHTML='<span>Carregando último checklist e abastecimento...</span>'; fetch('/vehicle/'+checklistVehicle.value+'/borrow-summary').then(r=>r.json()).then(d=>{ const c=d.last_checklist?`${d.last_checklist.date} · Estado ${d.last_checklist.condition}${d.last_checklist.damage?' · Com avaria':''}`:'Sem checklist anterior'; const f=d.last_fuel?`${d.last_fuel.date} · R$ ${String(d.last_fuel.amount).replace('.',',')}`:'Sem abastecimento anterior'; summary.innerHTML=`<b>${d.plate} · ${d.vehicle}</b><span>Último checklist: ${c}</span><span>Último abastecimento: ${f}</span><small>Somente estas informações da moto de terceiro estão disponíveis.</small>`; }).catch(()=>summary.innerHTML='<span>Não foi possível carregar o resumo.</span>'); } }
 }
 if(checklistVehicle){checklistVehicle.addEventListener('change',syncBorrowedVehicle);syncBorrowedVehicle();}
 const hasDamage=document.getElementById('hasDamage');
@@ -53,7 +55,7 @@ function syncDamage(){
 if(hasDamage){hasDamage.addEventListener('change',syncDamage);syncDamage();}
 
 
-// Alertas em tempo real para administradores. O navegador exige uma interação antes de liberar áudio.
+// Alertas em tempo real para administradores, sem arquivo de som externo.
 (function(){
   if(document.body.dataset.admin!=='1') return;
   const endpoint=document.body.dataset.notificationUrl;
@@ -61,31 +63,47 @@ if(hasDamage){hasDamage.addEventListener('change',syncDamage);syncDamage();}
   const toast=document.getElementById('notificationToast');
   const title=document.getElementById('notificationToastTitle');
   const message=document.getElementById('notificationToastMessage');
-  let previousCount=null;
-  let audioUnlocked=false;
-  let audioContext=null;
-  function unlock(){
-    try{ audioContext=audioContext||new (window.AudioContext||window.webkitAudioContext)(); if(audioContext.state==='suspended') audioContext.resume(); audioUnlocked=true; }catch(e){}
+  const testButton=document.getElementById('testAlertSound');
+  const status=document.getElementById('soundStatus');
+  let previousSignature=null, audioContext=null, unlocked=false;
+  function ensureAudio(){
+    try{
+      audioContext=audioContext||new (window.AudioContext||window.webkitAudioContext)();
+      if(audioContext.state==='suspended') audioContext.resume();
+      unlocked=true;
+      sessionStorage.setItem('fleetSoundUnlocked','1');
+      if(status) status.textContent='🔊 Som ativado para esta sessão.';
+      return true;
+    }catch(e){ if(status)status.textContent='O navegador bloqueou o áudio. Toque novamente em Testar som.'; return false; }
   }
-  ['click','touchstart','keydown'].forEach(evt=>document.addEventListener(evt,unlock,{once:true,passive:true}));
-  function beep(){
-    if(!audioUnlocked||!audioContext) return;
+  function tone(freq,start,duration,volume=.16){
     const osc=audioContext.createOscillator(), gain=audioContext.createGain();
-    osc.type='sine'; osc.frequency.setValueAtTime(880,audioContext.currentTime);
-    gain.gain.setValueAtTime(.0001,audioContext.currentTime); gain.gain.exponentialRampToValueAtTime(.18,audioContext.currentTime+.02); gain.gain.exponentialRampToValueAtTime(.0001,audioContext.currentTime+.42);
-    osc.connect(gain); gain.connect(audioContext.destination); osc.start(); osc.stop(audioContext.currentTime+.45);
+    osc.type='sine'; osc.frequency.value=freq;
+    gain.gain.setValueAtTime(.0001,start); gain.gain.exponentialRampToValueAtTime(volume,start+.02); gain.gain.exponentialRampToValueAtTime(.0001,start+duration);
+    osc.connect(gain); gain.connect(audioContext.destination); osc.start(start); osc.stop(start+duration+.02);
   }
+  function playAlert(){ if(!ensureAudio())return; const now=audioContext.currentTime; tone(880,now,.22); tone(1175,now+.25,.34,.20); }
+  ['click','touchstart','keydown'].forEach(evt=>document.addEventListener(evt,()=>{ if(!unlocked)ensureAudio(); },{once:true,passive:true}));
+  if(testButton)testButton.addEventListener('click',()=>{ensureAudio();playAlert();});
   async function poll(){
     try{
       const response=await fetch(endpoint,{headers:{'Accept':'application/json'},cache:'no-store'}); if(!response.ok)return;
       const data=await response.json();
-      if(badge){ badge.textContent=data.count; badge.hidden=data.count<1; }
-      if(previousCount!==null && data.count>previousCount){
-        beep();
-        if(toast){ title.textContent=data.latest_title||'Novo alerta'; message.textContent=data.latest_message||''; toast.hidden=false; clearTimeout(toast._timer); toast._timer=setTimeout(()=>toast.hidden=true,9000); }
+      if(badge){badge.textContent=data.count;badge.hidden=data.count<1;}
+      const sig=String(data.latest_id)+':'+String(data.count);
+      if(previousSignature!==null && sig!==previousSignature && data.count>0){
+        playAlert();
+        if(toast){title.textContent=data.latest_title||'Novo alerta';message.textContent=data.latest_message||'Existe um novo alerta para o administrador.';toast.hidden=false;clearTimeout(toast._timer);toast._timer=setTimeout(()=>toast.hidden=true,9000);}
       }
-      previousCount=data.count;
+      previousSignature=sig;
     }catch(e){}
   }
-  poll(); setInterval(poll,10000);
+  poll();setInterval(poll,8000);
 })();
+
+// Modais administrativos.
+document.querySelectorAll('[data-reset-user]').forEach(btn=>btn.addEventListener('click',()=>{const d=document.getElementById('passwordDialog'),f=document.getElementById('passwordForm');f.action='/admin/users/'+btn.dataset.resetUser+'/reset-password';document.getElementById('passwordUserName').textContent=btn.dataset.resetName;d.showModal();}));
+document.querySelectorAll('[data-delete-expense]').forEach(btn=>btn.addEventListener('click',()=>{const d=document.getElementById('deleteExpenseDialog'),f=document.getElementById('deleteExpenseForm');f.action='/admin/expense/'+btn.dataset.deleteExpense+'/delete';d.showModal();}));
+document.querySelectorAll('[data-close-dialog]').forEach(btn=>btn.addEventListener('click',()=>btn.closest('dialog').close()));
+
+document.querySelectorAll('[data-delete-checklist]').forEach(btn=>btn.addEventListener('click',()=>{const d=document.getElementById('deleteChecklistDialog'),f=document.getElementById('deleteChecklistForm');f.action='/admin/checklist/'+btn.dataset.deleteChecklist+'/delete';d.showModal();}));
