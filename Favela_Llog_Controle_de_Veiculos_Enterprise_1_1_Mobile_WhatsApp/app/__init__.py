@@ -46,7 +46,7 @@ def create_app():
             migrations = {
                 'alert_recipient': [('phone', 'VARCHAR(30)')],
                 'expense': [('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
-                'daily_checklist': [('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
+                'daily_checklist': [('odometer','INTEGER NOT NULL DEFAULT 0'),('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
                 'admin_notification': [('whatsapp_sent_at','TIMESTAMP'),('whatsapp_sent_by_id','INTEGER')],
             }
             for table, fields in migrations.items():

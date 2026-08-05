@@ -5,7 +5,7 @@
 </header>
 <form method="post" enctype="multipart/form-data" class="panel form-grid mobile-form" id="receiptForm">
   {% if current_user.is_admin %}
-  <label>Veículo<select name="vehicle_id" required><option value="">Selecione</option>{% for v in vehicles %}<option value="{{v.id}}">{{v.plate}} · {{v.brand}} {{v.model}}</option>{% endfor %}</select></label>
+  <label>Veículo<select name="vehicle_id" required><option value="">Selecione</option>{% for v in vehicles %}<option value="{{v.id}}">{{v.plate}} · {{v.driver.name if v.driver else 'Sem motorista vinculado'}}</option>{% endfor %}</select></label>
   {% else %}
   <div class="vehicle-summary wide"><small>Moto atual</small><strong>{{ vehicle.brand ~ ' ' ~ vehicle.model if vehicle else 'Sem moto vinculada' }}</strong><span>{{ vehicle.plate if vehicle else '' }}</span></div>
   {% endif %}

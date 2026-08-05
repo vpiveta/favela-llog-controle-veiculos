@@ -119,6 +119,7 @@ class DailyChecklist(db.Model):
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False, index=True)
     owner_driver_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     borrowed_vehicle = db.Column(db.Boolean, default=False, nullable=False)
+    odometer = db.Column(db.Integer, nullable=False, default=0)
     borrow_reason = db.Column(db.Text)
     tires_ok = db.Column(db.Boolean, nullable=False)
     brakes_ok = db.Column(db.Boolean, nullable=False)

@@ -1,13 +1,14 @@
 {% extends 'base.html' %}{% block title %}Checklist Diário{% endblock %}{% block content %}
-<header class="page-head"><div><h2>Checklist diário da moto</h2><p>Registre o estado da moto antes do uso. Não é necessário informar quilometragem ou combustível.</p></div></header>
+<header class="page-head"><div><h2>Checklist diário da moto</h2><p>Registre o estado da moto antes do uso. A quilometragem é obrigatória para controlar a próxima troca de óleo.</p></div></header>
 <form method="post" enctype="multipart/form-data" class="panel form-grid mobile-form" id="checklistForm">
   <div class="vehicle-summary wide"><small>Motorista</small><strong>{{ current_user.name }}</strong><span>{{ today.strftime('%d/%m/%Y') }}</span></div>
   <label class="wide">Moto utilizada
     <select name="vehicle_id" id="checklistVehicle" data-own-vehicle="{{own_vehicle.id if own_vehicle else ''}}" required>
       <option value="">Selecione</option>
-      {% for v in vehicles %}<option value="{{v.id}}" {% if own_vehicle and v.id==own_vehicle.id %}selected{% endif %}>{{v.plate}} · {{v.brand}} {{v.model}}</option>{% endfor %}
+      {% for v in vehicles %}<option value="{{v.id}}" {% if own_vehicle and v.id==own_vehicle.id %}selected{% endif %}>{{v.plate}} · {{v.driver.name if v.driver else 'Sem motorista vinculado'}}</option>{% endfor %}
     </select>
   </label>
+  <label class="wide">Quilometragem atual<input type="number" name="odometer" min="0" inputmode="numeric" required placeholder="Ex.: 15480"></label>
   <div class="wide borrow-summary" id="borrowSummary" hidden></div><label class="wide" id="borrowReasonWrap" hidden>Motivo para utilizar a moto de outro motorista
     <textarea name="borrow_reason" id="borrowReason" placeholder="Explique por que está utilizando esta moto"></textarea>
   </label>

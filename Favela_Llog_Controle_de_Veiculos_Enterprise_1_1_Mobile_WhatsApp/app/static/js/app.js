@@ -107,3 +107,6 @@ document.querySelectorAll('[data-delete-expense]').forEach(btn=>btn.addEventList
 document.querySelectorAll('[data-close-dialog]').forEach(btn=>btn.addEventListener('click',()=>btn.closest('dialog').close()));
 
 document.querySelectorAll('[data-delete-checklist]').forEach(btn=>btn.addEventListener('click',()=>{const d=document.getElementById('deleteChecklistDialog'),f=document.getElementById('deleteChecklistForm');f.action='/admin/checklist/'+btn.dataset.deleteChecklist+'/delete';d.showModal();}));
+
+// Edição de veículos.
+document.querySelectorAll('[data-edit-vehicle]').forEach(btn=>btn.addEventListener('click',()=>{const d=document.getElementById('vehicleDialog'+btn.dataset.editVehicle);if(d)d.showModal();}));

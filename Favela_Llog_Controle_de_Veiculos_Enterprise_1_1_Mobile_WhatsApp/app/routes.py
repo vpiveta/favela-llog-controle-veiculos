@@ -209,6 +209,9 @@ def checklist_new():
             if not vehicle:
                 raise ValueError('Selecione a moto utilizada.')
             borrowed = not own_vehicle or vehicle.id != own_vehicle.id
+            odometer = request.form.get('odometer', type=int)
+            if odometer is None or odometer < 0:
+                raise ValueError('Informe a quilometragem atual da moto.')
             reason = request.form.get('borrow_reason','').strip()
             if borrowed and not reason:
                 raise ValueError('Informe o motivo do uso da moto de outro motorista.')
@@ -221,7 +224,7 @@ def checklist_new():
             if has_damage and not damage_description:
                 raise ValueError('Descreva a avaria encontrada.')
             checklist = DailyChecklist(
-                checklist_date=date.today(), driver_id=current_user.id, vehicle_id=vehicle.id,
+                checklist_date=date.today(), driver_id=current_user.id, vehicle_id=vehicle.id, odometer=odometer,
                 owner_driver_id=vehicle.driver_id, borrowed_vehicle=borrowed, borrow_reason=reason or None,
                 tires_ok=request.form.get('tires_ok') == 'ok', brakes_ok=request.form.get('brakes_ok') == 'ok',
                 lights_ok=request.form.get('lights_ok') == 'ok', indicators_ok=request.form.get('indicators_ok') == 'ok',
@@ -231,6 +234,8 @@ def checklist_new():
                 status='PENDING_WHATSAPP' if borrowed else ('DAMAGE_REPORTED' if has_damage else 'COMPLETED'),
                 share_token=secrets.token_urlsafe(24)
             )
+            if odometer > (vehicle.current_km or 0):
+                vehicle.current_km = odometer
             db.session.add(checklist); db.session.flush()
             required = [('front_photo','CHECKLIST_FRONT'),('rear_photo','CHECKLIST_REAR'),('right_photo','CHECKLIST_RIGHT'),('left_photo','CHECKLIST_LEFT')]
             for field, category in required:
@@ -405,7 +410,7 @@ def borrow_vehicle_summary(vehicle_id):
     last_checklist=DailyChecklist.query.filter_by(vehicle_id=vehicle.id,is_deleted=False).order_by(DailyChecklist.created_at.desc()).first()
     last_fuel=Expense.query.filter_by(vehicle_id=vehicle.id,expense_type='FUEL',is_deleted=False).order_by(Expense.expense_date.desc(),Expense.id.desc()).first()
     return jsonify({
-        'borrowed':True, 'plate':vehicle.plate, 'vehicle':f'{vehicle.brand} {vehicle.model}',
+        'borrowed':True, 'plate':vehicle.plate, 'vehicle':(vehicle.driver.name if vehicle.driver else 'Sem motorista vinculado'),
         'last_checklist': ({'date':last_checklist.checklist_date.strftime('%d/%m/%Y'),'condition':last_checklist.general_condition,'damage':last_checklist.has_damage} if last_checklist else None),
         'last_fuel': ({'date':last_fuel.expense_date.strftime('%d/%m/%Y'),'amount':str(last_fuel.amount)} if last_fuel else None)
     })
@@ -458,17 +463,52 @@ def notifications_read_all():
     flash('Notificações marcadas como lidas.', 'success')
     return redirect(request.referrer or url_for('main.alerts'))
 
+def assign_vehicle_driver(vehicle, driver_id):
+    if driver_id:
+        other = Vehicle.query.filter(Vehicle.driver_id == driver_id, Vehicle.id != vehicle.id).first()
+        if other:
+            other.driver_id = None
+    vehicle.driver_id = driver_id or None
+
 @main_bp.route('/admin/vehicles', methods=['GET','POST'])
 @login_required
 @admin_required
 def vehicles():
     if request.method == 'POST':
         try:
-            v = Vehicle(plate=request.form['plate'].upper().replace('-',''), brand=request.form['brand'], model=request.form['model'], year=request.form.get('year', type=int), current_km=request.form.get('current_km', type=int) or 0, driver_id=request.form.get('driver_id', type=int) or None)
-            db.session.add(v); db.session.commit(); flash('Veículo cadastrado.', 'success')
+            v = Vehicle(
+                plate=request.form['plate'].upper().replace('-','').strip(),
+                brand=request.form['brand'].strip(), model=request.form['model'].strip(),
+                year=request.form.get('year', type=int), current_km=request.form.get('current_km', type=int) or 0,
+            )
+            db.session.add(v); db.session.flush()
+            assign_vehicle_driver(v, request.form.get('driver_id', type=int))
+            db.session.commit(); flash('Veículo cadastrado.', 'success')
         except Exception as exc: db.session.rollback(); flash(str(exc), 'danger')
     drivers = User.query.filter_by(role='DRIVER', active=True).order_by(User.name).all()
     return render_template('admin/vehicles.html', vehicles=Vehicle.query.order_by(Vehicle.plate).all(), drivers=drivers)
+
+@main_bp.route('/admin/vehicles/<int:vehicle_id>/edit', methods=['POST'])
+@login_required
+@admin_required
+def edit_vehicle(vehicle_id):
+    vehicle = db.session.get(Vehicle, vehicle_id) or abort(404)
+    try:
+        plate = request.form['plate'].upper().replace('-','').strip()
+        duplicate = Vehicle.query.filter(Vehicle.plate == plate, Vehicle.id != vehicle.id).first()
+        if duplicate:
+            raise ValueError('Já existe outro veículo com esta placa.')
+        vehicle.plate = plate
+        vehicle.brand = request.form['brand'].strip()
+        vehicle.model = request.form['model'].strip()
+        vehicle.year = request.form.get('year', type=int)
+        vehicle.current_km = request.form.get('current_km', type=int) or 0
+        vehicle.status = request.form.get('status') or 'AVAILABLE'
+        assign_vehicle_driver(vehicle, request.form.get('driver_id', type=int))
+        db.session.commit(); flash('Veículo atualizado com sucesso.', 'success')
+    except Exception as exc:
+        db.session.rollback(); flash(str(exc), 'danger')
+    return redirect(url_for('main.vehicles'))
 
 def normalize_whatsapp_phone(value):
     digits = ''.join(ch for ch in (value or '') if ch.isdigit())
