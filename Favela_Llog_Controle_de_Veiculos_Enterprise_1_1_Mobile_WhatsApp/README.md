@@ -34,3 +34,11 @@ Configure `DATABASE_URL` com um PostgreSQL/Supabase e publique no Render.
 - Pré-visualização e compressão da foto antes do envio, quando suportado.
 - Alertas de óleo preparados automaticamente e enviados pelo WhatsApp normal após confirmação manual.
 - Não utiliza Meta API, robôs ou bibliotecas não oficiais.
+
+## Versao 1.2 — Pacote consolidado
+- Assistente `MENU_FAVELA_LLOG.bat` para operacoes locais e online.
+- Configuracao do Supabase sem PowerShell e sem depender do nome da pasta.
+- Criacao/redefinicao do administrador online diretamente no PostgreSQL.
+- Teste de conexao e criacao das tabelas do Supabase.
+- Publicacao GitHub/Render por BAT.
+- Python fixado em 3.12.7 para o Render.

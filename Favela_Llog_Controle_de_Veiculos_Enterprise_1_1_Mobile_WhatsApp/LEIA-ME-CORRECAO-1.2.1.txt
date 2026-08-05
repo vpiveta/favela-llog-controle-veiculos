@@ -1,0 +1,16 @@
+FAVELA LLOG CONTROLE DE VEÍCULOS — ENTERPRISE 1.2.1
+
+CORREÇÕES
+- Corrigido "No module named app" nos BATs de banco e administrador.
+- Scripts agora usam o projeto como módulo Python, mesmo com espaços no caminho.
+- Fundo visual Favela Llog aplicado em todo o sistema, não apenas no login.
+- BAT de preparação valida se a pasta app está no local correto.
+
+USO
+1. Extraia o pacote completo em uma pasta nova.
+2. Abra MENU_FAVELA_LLOG.bat.
+3. Para Supabase: opções 4, 5 e 6.
+4. Para publicar: copie o conteúdo para a pasta oficial ligada ao GitHub e use a opção 8.
+
+SEGURANÇA
+Se a senha do Supabase apareceu em alguma captura, redefina a senha do banco e rode novamente a opção 4.

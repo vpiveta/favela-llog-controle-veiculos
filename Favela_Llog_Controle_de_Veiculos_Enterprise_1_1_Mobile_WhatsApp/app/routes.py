@@ -2,12 +2,13 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import wraps
 from pathlib import Path
-import os, uuid
+from io import BytesIO
+import os, uuid, secrets
 from urllib.parse import quote
-from flask import Blueprint, current_app, flash, redirect, render_template, request, send_from_directory, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, send_from_directory, send_file, url_for, abort, jsonify
 from flask_login import current_user, login_required, login_user, logout_user
 from werkzeug.utils import secure_filename
-from .models import db, User, Vehicle, Expense, FuelDetail, MaintenanceDetail, OilChange, AlertRecipient
+from .models import db, User, Vehicle, Expense, FuelDetail, MaintenanceDetail, OilChange, AlertRecipient, StoredFile, DailyChecklist, AdminNotification
 
 auth_bp = Blueprint('auth', __name__)
 main_bp = Blueprint('main', __name__)
@@ -22,21 +23,44 @@ def admin_required(fn):
         return fn(*a, **kw)
     return wrapped
 
-def save_receipt(file):
+def store_uploaded_file(file, category, entity_type, entity_id, images_only=False):
     if not file or not file.filename:
-        raise ValueError('A foto da nota é obrigatória.')
+        raise ValueError('A foto ou comprovante é obrigatório.')
     ext = file.filename.rsplit('.',1)[-1].lower() if '.' in file.filename else ''
-    if ext not in ALLOWED:
-        raise ValueError('Formato inválido. Use JPG, PNG, WEBP ou PDF.')
-    name = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
-    file.save(Path(current_app.config['UPLOAD_FOLDER']) / name)
-    return name
+    allowed = {'png','jpg','jpeg','webp'} if images_only else ALLOWED
+    if ext not in allowed:
+        raise ValueError('Formato inválido. Use JPG, PNG, WEBP' + ('.' if images_only else ' ou PDF.'))
+    data = file.read()
+    if not data:
+        raise ValueError('O arquivo enviado está vazio.')
+    if len(data) > current_app.config.get('MAX_CONTENT_LENGTH', 8 * 1024 * 1024):
+        raise ValueError('Arquivo muito grande.')
+    token = uuid.uuid4().hex
+    stored = StoredFile(
+        token=token, original_name=secure_filename(file.filename) or f'{category}.{ext}',
+        mime_type=file.mimetype or ('image/jpeg' if images_only else 'application/octet-stream'),
+        file_size=len(data), category=category, entity_type=entity_type, entity_id=entity_id,
+        uploaded_by_id=current_user.id, content=data
+    )
+    db.session.add(stored)
+    return token
+
+def save_receipt(file, expense_id):
+    return store_uploaded_file(file, 'RECEIPT', 'EXPENSE', expense_id, images_only=False)
 
 def selected_vehicle():
     if current_user.is_admin:
         vehicle_id = request.form.get('vehicle_id', type=int) or request.args.get('vehicle_id', type=int)
         return db.session.get(Vehicle, vehicle_id) if vehicle_id else None
     return current_user.vehicle
+
+def add_admin_notification(notification_type, title, message, checklist_id=None):
+    db.session.add(AdminNotification(
+        notification_type=notification_type,
+        title=title,
+        message=message,
+        checklist_id=checklist_id,
+    ))
 
 @auth_bp.route('/login', methods=['GET','POST'])
 def login():
@@ -67,7 +91,13 @@ def dashboard():
     maint = total - fuel
     alerts = build_oil_alerts(current_user.vehicle.id if not current_user.is_admin and current_user.vehicle else None)
     vehicles = Vehicle.query.order_by(Vehicle.plate).all() if current_user.is_admin else ([current_user.vehicle] if current_user.vehicle else [])
-    return render_template('dashboard.html', expenses=expenses[:8], total=total, fuel=fuel, maint=maint, alerts=alerts, vehicles=vehicles)
+    today_checklists = DailyChecklist.query.filter_by(checklist_date=date.today())
+    if not current_user.is_admin:
+        today_checklists = today_checklists.filter_by(driver_id=current_user.id)
+    today_checklist_count = today_checklists.count()
+    pending_notifications = AdminNotification.query.filter_by(is_read=False).count() if current_user.is_admin else 0
+    recent_checklists = (DailyChecklist.query if current_user.is_admin else DailyChecklist.query.filter_by(driver_id=current_user.id)).order_by(DailyChecklist.created_at.desc()).limit(5).all()
+    return render_template('dashboard.html', expenses=expenses[:8], total=total, fuel=fuel, maint=maint, alerts=alerts, vehicles=vehicles, today_checklist_count=today_checklist_count, pending_notifications=pending_notifications, recent_checklists=recent_checklists)
 
 @main_bp.route('/fuel/new', methods=['GET','POST'])
 @login_required
@@ -78,10 +108,12 @@ def fuel_new():
         vehicle = selected_vehicle()
         if not vehicle: flash('Nenhuma moto vinculada.', 'danger'); return redirect(request.url)
         try:
-            receipt = save_receipt(request.files.get('receipt'))
-            exp = Expense(expense_type='FUEL', expense_date=datetime.strptime(request.form['expense_date'],'%Y-%m-%d').date(), amount=Decimal(request.form['amount'].replace(',','.')), odometer=None, receipt_path=receipt, notes=None, created_by_id=current_user.id, vehicle_id=vehicle.id)
+            exp = Expense(expense_type='FUEL', expense_date=datetime.strptime(request.form['expense_date'],'%Y-%m-%d').date(), amount=Decimal(request.form['amount'].replace(',','.')), odometer=None, receipt_path='pending', notes=None, created_by_id=current_user.id, vehicle_id=vehicle.id)
             exp.fuel = FuelDetail(liters=Decimal(request.form.get('liters','0').replace(',','.')) if request.form.get('liters') else None, fuel_type=request.form.get('fuel_type'), station=request.form.get('station'))
-            db.session.add(exp); db.session.commit(); flash('Abastecimento registrado.', 'success'); return redirect(url_for('main.history'))
+            db.session.add(exp); db.session.flush()
+            exp.receipt_path = save_receipt(request.files.get('receipt'), exp.id)
+            add_admin_notification('FUEL', 'Novo abastecimento', f'{current_user.name} registrou abastecimento da moto {vehicle.plate} no valor de R$ {exp.amount}.')
+            db.session.commit(); flash('Abastecimento registrado.', 'success'); return redirect(url_for('main.history'))
         except Exception as exc:
             db.session.rollback(); flash(str(exc), 'danger')
     return render_template('driver/fuel_form.html', vehicles=vehicles, vehicle=vehicle, today=date.today().isoformat())
@@ -95,21 +127,22 @@ def maintenance_new():
         vehicle = selected_vehicle()
         if not vehicle: flash('Nenhuma moto vinculada.', 'danger'); return redirect(request.url)
         try:
-            receipt = save_receipt(request.files.get('receipt'))
             start = datetime.strptime(request.form['start_date'],'%Y-%m-%d').date()
             same = request.form.get('same_day') == 'on'
             end = start if same else datetime.strptime(request.form['end_date'],'%Y-%m-%d').date()
             if end < start: raise ValueError('A data final não pode ser anterior à inicial.')
             km = request.form.get('odometer', type=int)
-            exp = Expense(expense_type='MAINTENANCE', expense_date=start, amount=Decimal(request.form['amount'].replace(',','.')), odometer=km, receipt_path=receipt, notes=request.form.get('notes'), created_by_id=current_user.id, vehicle_id=vehicle.id)
+            exp = Expense(expense_type='MAINTENANCE', expense_date=start, amount=Decimal(request.form['amount'].replace(',','.')), odometer=km, receipt_path='pending', notes=request.form.get('notes'), created_by_id=current_user.id, vehicle_id=vehicle.id)
             exp.maintenance = MaintenanceDetail(start_date=start, same_day=same, end_date=end, description=request.form['description'], workshop=request.form.get('workshop'), status='COMPLETED' if same else request.form.get('status','IN_PROGRESS'))
             if km and km > (vehicle.current_km or 0): vehicle.current_km = km
             vehicle.status = 'AVAILABLE' if same or exp.maintenance.status == 'COMPLETED' else 'MAINTENANCE'
             db.session.add(exp); db.session.flush()
+            exp.receipt_path = save_receipt(request.files.get('receipt'), exp.id)
             if request.form.get('is_oil_change') == 'on':
                 interval = request.form.get('oil_interval_km', type=int) or 3000
                 months = request.form.get('oil_interval_months', type=int) or 6
                 db.session.add(OilChange(change_date=start, odometer=km or vehicle.current_km or 0, next_change_km=(km or vehicle.current_km or 0)+interval, next_change_date=start+timedelta(days=months*30), oil_type=request.form.get('oil_type'), vehicle_id=vehicle.id, expense_id=exp.id))
+            add_admin_notification('MAINTENANCE', 'Nova manutenção', f'{current_user.name} registrou manutenção da moto {vehicle.plate}: {exp.maintenance.description}.')
             db.session.commit(); flash('Manutenção registrada.', 'success'); return redirect(url_for('main.history'))
         except Exception as exc:
             db.session.rollback(); flash(str(exc), 'danger')
@@ -124,12 +157,143 @@ def history():
     if kind: q = q.filter_by(expense_type=kind)
     return render_template('driver/history.html', expenses=q.order_by(Expense.expense_date.desc(), Expense.id.desc()).all())
 
+@main_bp.route('/expense/<int:expense_id>/receipt')
+@login_required
+def expense_receipt(expense_id):
+    exp = db.session.get(Expense, expense_id) or abort(404)
+    if not current_user.is_admin and exp.created_by_id != current_user.id:
+        return ('', 403)
+    stored = StoredFile.query.filter_by(entity_type='EXPENSE', entity_id=exp.id).order_by(StoredFile.id.desc()).first()
+    if stored:
+        return send_file(BytesIO(stored.content), mimetype=stored.mime_type, download_name=stored.original_name, as_attachment=request.args.get('download') == '1')
+    legacy = Path(current_app.config['UPLOAD_FOLDER']) / (exp.receipt_path or '')
+    if legacy.is_file():
+        return send_from_directory(current_app.config['UPLOAD_FOLDER'], legacy.name, as_attachment=request.args.get('download') == '1')
+    return render_template('file_unavailable.html', expense=exp), 404
+
 @main_bp.route('/receipt/<path:name>')
 @login_required
 def receipt(name):
     exp = Expense.query.filter_by(receipt_path=name).first_or_404()
-    if not current_user.is_admin and exp.created_by_id != current_user.id: return ('',403)
-    return send_from_directory(current_app.config['UPLOAD_FOLDER'], name)
+    return redirect(url_for('main.expense_receipt', expense_id=exp.id, download=request.args.get('download')))
+
+@main_bp.route('/files/<token>')
+@login_required
+def stored_file(token):
+    stored = StoredFile.query.filter_by(token=token).first_or_404()
+    if not current_user.is_admin and stored.uploaded_by_id != current_user.id:
+        return ('', 403)
+    return send_file(BytesIO(stored.content), mimetype=stored.mime_type, download_name=stored.original_name, as_attachment=request.args.get('download') == '1')
+
+@main_bp.route('/checklist/new', methods=['GET','POST'])
+@login_required
+def checklist_new():
+    own_vehicle = current_user.vehicle
+    all_vehicles = Vehicle.query.order_by(Vehicle.plate).all()
+    if request.method == 'POST':
+        try:
+            vehicle_id = request.form.get('vehicle_id', type=int)
+            vehicle = db.session.get(Vehicle, vehicle_id)
+            if not vehicle:
+                raise ValueError('Selecione a moto utilizada.')
+            borrowed = not own_vehicle or vehicle.id != own_vehicle.id
+            reason = request.form.get('borrow_reason','').strip()
+            if borrowed and not reason:
+                raise ValueError('Informe o motivo do uso da moto de outro motorista.')
+            existing = DailyChecklist.query.filter_by(driver_id=current_user.id, vehicle_id=vehicle.id, checklist_date=date.today()).first()
+            if existing:
+                flash('O checklist desta moto já foi realizado hoje.', 'warning')
+                return redirect(url_for('main.checklist_detail', checklist_id=existing.id))
+            has_damage = request.form.get('has_damage') == 'yes'
+            damage_description = request.form.get('damage_description','').strip()
+            if has_damage and not damage_description:
+                raise ValueError('Descreva a avaria encontrada.')
+            checklist = DailyChecklist(
+                checklist_date=date.today(), driver_id=current_user.id, vehicle_id=vehicle.id,
+                owner_driver_id=vehicle.driver_id, borrowed_vehicle=borrowed, borrow_reason=reason or None,
+                tires_ok=request.form.get('tires_ok') == 'ok', brakes_ok=request.form.get('brakes_ok') == 'ok',
+                lights_ok=request.form.get('lights_ok') == 'ok', indicators_ok=request.form.get('indicators_ok') == 'ok',
+                mirrors_ok=request.form.get('mirrors_ok') == 'ok', horn_ok=request.form.get('horn_ok') == 'ok',
+                chain_ok=request.form.get('chain_ok') == 'ok', general_condition=request.form.get('general_condition','GOOD'),
+                has_damage=has_damage, damage_description=damage_description or None,
+                status='PENDING_WHATSAPP' if borrowed else ('DAMAGE_REPORTED' if has_damage else 'COMPLETED'),
+                share_token=secrets.token_urlsafe(24)
+            )
+            db.session.add(checklist); db.session.flush()
+            required = [('front_photo','CHECKLIST_FRONT'),('rear_photo','CHECKLIST_REAR'),('right_photo','CHECKLIST_RIGHT'),('left_photo','CHECKLIST_LEFT')]
+            for field, category in required:
+                store_uploaded_file(request.files.get(field), category, 'CHECKLIST', checklist.id, images_only=True)
+            if has_damage:
+                store_uploaded_file(request.files.get('damage_photo'), 'CHECKLIST_DAMAGE', 'CHECKLIST', checklist.id, images_only=True)
+            add_admin_notification('CHECKLIST', 'Novo checklist diário', f'{current_user.name} enviou o checklist da moto {vehicle.plate}.', checklist.id)
+            if borrowed:
+                add_admin_notification('BORROWED_VEHICLE', 'Moto utilizada por outro motorista', f'{current_user.name} está utilizando a moto {vehicle.plate}. Motivo: {reason}', checklist.id)
+            if has_damage:
+                add_admin_notification('DAMAGE', 'Avaria informada no checklist', f'{current_user.name} informou avaria na moto {vehicle.plate}: {damage_description}', checklist.id)
+            db.session.commit()
+            flash('Checklist salvo com sucesso.', 'success')
+            return redirect(url_for('main.checklist_detail', checklist_id=checklist.id))
+        except Exception as exc:
+            db.session.rollback(); flash(str(exc), 'danger')
+    return render_template('driver/checklist_form.html', own_vehicle=own_vehicle, vehicles=all_vehicles, today=date.today())
+
+@main_bp.route('/checklists')
+@login_required
+def checklist_history():
+    q = DailyChecklist.query
+    if not current_user.is_admin:
+        q = q.filter_by(driver_id=current_user.id)
+    checklists = q.order_by(DailyChecklist.created_at.desc()).all()
+    return render_template('driver/checklist_history.html', checklists=checklists)
+
+@main_bp.route('/checklist/<int:checklist_id>')
+@login_required
+def checklist_detail(checklist_id):
+    checklist = db.session.get(DailyChecklist, checklist_id) or abort(404)
+    if not current_user.is_admin and checklist.driver_id != current_user.id:
+        return ('',403)
+    files = StoredFile.query.filter_by(entity_type='CHECKLIST', entity_id=checklist.id).order_by(StoredFile.id).all()
+    recipients = AlertRecipient.query.filter_by(active=True).order_by(AlertRecipient.name).all()
+    base_url = os.getenv('ONLINE_URL') or request.url_root.rstrip('/')
+    share_url = f"{base_url}{url_for('main.checklist_share', token=checklist.share_token)}"
+    message = quote(f"🏍️ *Favela Llog Controle de Veículos*\n\n*Uso temporário de moto*\nMotorista: {checklist.driver.name}\nMoto: {checklist.vehicle.brand} {checklist.vehicle.model}\nPlaca: {checklist.vehicle.plate}\nResponsável original: {checklist.owner_driver.name if checklist.owner_driver else 'Sem vínculo'}\nMotivo: {checklist.borrow_reason or '-'}\nData: {checklist.checklist_date.strftime('%d/%m/%Y')}\n\nChecklist e imagens: {share_url}")
+    whatsapp_links=[]
+    for recipient in recipients:
+        phone=normalize_whatsapp_phone(recipient.phone)
+        if phone: whatsapp_links.append({'name':recipient.name,'url':f'https://wa.me/{phone}?text={message}'})
+    return render_template('driver/checklist_detail.html', checklist=checklist, files=files, whatsapp_links=whatsapp_links)
+
+@main_bp.route('/checklist/<int:checklist_id>/confirm-whatsapp', methods=['POST'])
+@login_required
+def checklist_confirm_whatsapp(checklist_id):
+    checklist = db.session.get(DailyChecklist, checklist_id) or abort(404)
+    if not current_user.is_admin and checklist.driver_id != current_user.id:
+        return ('',403)
+    checklist.whatsapp_sent_at = datetime.utcnow()
+    checklist.whatsapp_confirmed_by_id = current_user.id
+    checklist.status = 'DAMAGE_REPORTED' if checklist.has_damage else 'COMPLETED'
+    db.session.commit(); flash('Envio pelo WhatsApp confirmado e registrado no histórico.', 'success')
+    return redirect(url_for('main.checklist_detail', checklist_id=checklist.id))
+
+@main_bp.route('/checklist/share/<token>')
+def checklist_share(token):
+    checklist = DailyChecklist.query.filter_by(share_token=token).first_or_404()
+    files = StoredFile.query.filter_by(entity_type='CHECKLIST', entity_id=checklist.id).order_by(StoredFile.id).all()
+    return render_template('driver/checklist_share.html', checklist=checklist, files=files)
+
+@main_bp.route('/checklist/share/<token>/file/<file_token>')
+def checklist_share_file(token, file_token):
+    checklist = DailyChecklist.query.filter_by(share_token=token).first_or_404()
+    stored = StoredFile.query.filter_by(token=file_token, entity_type='CHECKLIST', entity_id=checklist.id).first_or_404()
+    return send_file(BytesIO(stored.content), mimetype=stored.mime_type, download_name=stored.original_name, as_attachment=request.args.get('download') == '1')
+
+@main_bp.route('/admin/checklists')
+@login_required
+@admin_required
+def admin_checklists():
+    checklists = DailyChecklist.query.order_by(DailyChecklist.created_at.desc()).all()
+    notifications = AdminNotification.query.order_by(AdminNotification.created_at.desc()).limit(50).all()
+    return render_template('admin/checklists.html', checklists=checklists, notifications=notifications)
 
 @main_bp.route('/admin/users', methods=['GET','POST'])
 @login_required
@@ -141,7 +305,57 @@ def users():
             u = User(name=request.form['name'], username=request.form['username'].strip(), email=request.form.get('email'), phone=request.form.get('phone'), role=request.form['role'], must_change_password=True)
             u.set_password(request.form['password']); db.session.add(u); db.session.commit(); flash('Usuário criado.', 'success')
         except Exception as exc: db.session.rollback(); flash(str(exc), 'danger')
-    return render_template('admin/users.html', users=User.query.order_by(User.name).all())
+    return render_template('admin/users.html', users=User.query.order_by(User.active.desc(), User.name).all())
+
+@main_bp.route('/admin/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_user(user_id):
+    user = db.session.get(User, user_id) or abort(404)
+    if user.id == current_user.id:
+        flash('Você não pode excluir o próprio usuário administrador.', 'danger')
+        return redirect(url_for('main.users'))
+    if user.role != 'DRIVER':
+        flash('A exclusão por esta opção é permitida somente para motoristas.', 'danger')
+        return redirect(url_for('main.users'))
+    try:
+        if user.vehicle:
+            user.vehicle.driver_id = None
+        # Exclusão segura: bloqueia o acesso e preserva o histórico operacional.
+        user.active = False
+        user.must_change_password = False
+        user.username = f'{user.username}__excluido_{user.id}_{int(datetime.utcnow().timestamp())}'[:80]
+        if '(Excluído)' not in user.name:
+            user.name = f'{user.name} (Excluído)'
+        add_admin_notification('DRIVER_DELETED', 'Motorista excluído', f'O administrador excluiu/desativou o cadastro de {user.name}. O histórico foi preservado.')
+        db.session.commit()
+        flash('Motorista excluído do acesso. O histórico foi preservado.', 'success')
+    except Exception as exc:
+        db.session.rollback(); flash(str(exc), 'danger')
+    return redirect(url_for('main.users'))
+
+@main_bp.route('/admin/notifications/status')
+@login_required
+@admin_required
+def notifications_status():
+    unread = AdminNotification.query.filter_by(is_read=False).order_by(AdminNotification.id.desc()).all()
+    latest = unread[0] if unread else None
+    return jsonify({
+        'count': len(unread),
+        'latest_id': latest.id if latest else 0,
+        'latest_title': latest.title if latest else '',
+        'latest_message': latest.message if latest else '',
+        'alerts_url': url_for('main.alerts'),
+    })
+
+@main_bp.route('/admin/notifications/read-all', methods=['POST'])
+@login_required
+@admin_required
+def notifications_read_all():
+    AdminNotification.query.filter_by(is_read=False).update({'is_read': True})
+    db.session.commit()
+    flash('Notificações marcadas como lidas.', 'success')
+    return redirect(request.referrer or url_for('main.alerts'))
 
 @main_bp.route('/admin/vehicles', methods=['GET','POST'])
 @login_required
@@ -210,7 +424,8 @@ def alerts():
             flash(str(exc), 'danger')
     recipients = AlertRecipient.query.filter_by(active=True).order_by(AlertRecipient.name).all()
     active_alerts = attach_whatsapp_links(build_oil_alerts(), recipients)
-    return render_template('admin/alerts.html', alerts=active_alerts, recipients=recipients)
+    system_notifications = AdminNotification.query.order_by(AdminNotification.created_at.desc()).limit(100).all()
+    return render_template('admin/alerts.html', alerts=active_alerts, recipients=recipients, system_notifications=system_notifications)
 
 def build_oil_alerts(vehicle_id=None):
     q = Vehicle.query

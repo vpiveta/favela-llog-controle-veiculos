@@ -1,0 +1,27 @@
+FAVELA LLOG CONTROLE DE VEICULOS - VERSAO COMPLETA
+
+TRABALHE SOMENTE NESTA PASTA.
+Nao copie arquivos isolados de versoes antigas.
+
+PARA USO LOCAL:
+1. Abra MENU_FAVELA_LLOG.bat
+2. Opcao 1 - preparar ambiente
+3. Opcao 3 - criar administrador local
+4. Opcao 2 - iniciar sistema
+
+PARA ATIVAR O BANCO ONLINE (SUPABASE):
+1. Abra MENU_FAVELA_LLOG.bat
+2. Opcao 4 - cole a Connection String do Supabase
+3. Opcao 5 - teste o banco e crie as tabelas
+4. Opcao 6 - crie/redefina o administrador online
+
+PARA O RENDER:
+Environment variables obrigatorias:
+DATABASE_URL = Connection String do Supabase
+SECRET_KEY  = chave longa e aleatoria
+
+Build Command: pip install -r requirements.txt
+Start Command: gunicorn wsgi:app
+
+PARA PUBLICAR ALTERACOES:
+Use a opcao 8 do MENU_FAVELA_LLOG.bat.
