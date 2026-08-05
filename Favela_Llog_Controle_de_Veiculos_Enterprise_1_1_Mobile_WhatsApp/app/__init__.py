@@ -39,14 +39,22 @@ def create_app():
     register_cli(app)
     with app.app_context():
         db.create_all()
-        # Migração leve para instalações locais criadas antes do campo WhatsApp.
+        # Migrações leves e idempotentes para bancos já existentes.
         try:
             from sqlalchemy import inspect, text
             inspector = inspect(db.engine)
-            columns = {c['name'] for c in inspector.get_columns('alert_recipient')}
-            if 'phone' not in columns:
-                db.session.execute(text('ALTER TABLE alert_recipient ADD COLUMN phone VARCHAR(30)'))
-                db.session.commit()
+            migrations = {
+                'alert_recipient': [('phone', 'VARCHAR(30)')],
+                'expense': [('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
+                'daily_checklist': [('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
+                'admin_notification': [('whatsapp_sent_at','TIMESTAMP'),('whatsapp_sent_by_id','INTEGER')],
+            }
+            for table, fields in migrations.items():
+                existing = {c['name'] for c in inspector.get_columns(table)}
+                for field, sqltype in fields:
+                    if field not in existing:
+                        db.session.execute(text(f'ALTER TABLE {table} ADD COLUMN {field} {sqltype}'))
+            db.session.commit()
         except Exception:
             db.session.rollback()
     return app

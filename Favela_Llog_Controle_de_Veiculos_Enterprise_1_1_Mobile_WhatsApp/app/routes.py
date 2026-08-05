@@ -8,7 +8,7 @@ from urllib.parse import quote
 from flask import Blueprint, current_app, flash, redirect, render_template, request, send_from_directory, send_file, url_for, abort, jsonify
 from flask_login import current_user, login_required, login_user, logout_user
 from werkzeug.utils import secure_filename
-from .models import db, User, Vehicle, Expense, FuelDetail, MaintenanceDetail, OilChange, AlertRecipient, StoredFile, DailyChecklist, AdminNotification
+from .models import db, User, Vehicle, Expense, FuelDetail, MaintenanceDetail, OilChange, AlertRecipient, StoredFile, DailyChecklist, AdminNotification, OilAlertStatus, AuditLog
 
 auth_bp = Blueprint('auth', __name__)
 main_bp = Blueprint('main', __name__)
@@ -82,22 +82,35 @@ def logout():
 @login_required
 def dashboard():
     month_start = date.today().replace(day=1)
-    q = Expense.query.filter(Expense.expense_date >= month_start)
+    q = Expense.query.filter(Expense.expense_date >= month_start, Expense.is_deleted.is_(False))
     if not current_user.is_admin:
         q = q.filter(Expense.created_by_id == current_user.id)
     expenses = q.order_by(Expense.expense_date.desc()).all()
     total = sum((Decimal(e.amount) for e in expenses), Decimal('0'))
     fuel = sum((Decimal(e.amount) for e in expenses if e.expense_type == 'FUEL'), Decimal('0'))
-    maint = total - fuel
+    oil = sum((Decimal(e.amount) for e in expenses if e.maintenance and e.oil_changes), Decimal('0'))
+    maintenance_total = sum((Decimal(e.amount) for e in expenses if e.expense_type == 'MAINTENANCE'), Decimal('0'))
+    maintenance_other = maintenance_total - oil
     alerts = build_oil_alerts(current_user.vehicle.id if not current_user.is_admin and current_user.vehicle else None)
     vehicles = Vehicle.query.order_by(Vehicle.plate).all() if current_user.is_admin else ([current_user.vehicle] if current_user.vehicle else [])
-    today_checklists = DailyChecklist.query.filter_by(checklist_date=date.today())
+    today_checklists = DailyChecklist.query.filter_by(checklist_date=date.today(), is_deleted=False)
     if not current_user.is_admin:
         today_checklists = today_checklists.filter_by(driver_id=current_user.id)
     today_checklist_count = today_checklists.count()
     pending_notifications = AdminNotification.query.filter_by(is_read=False).count() if current_user.is_admin else 0
-    recent_checklists = (DailyChecklist.query if current_user.is_admin else DailyChecklist.query.filter_by(driver_id=current_user.id)).order_by(DailyChecklist.created_at.desc()).limit(5).all()
-    return render_template('dashboard.html', expenses=expenses[:8], total=total, fuel=fuel, maint=maint, alerts=alerts, vehicles=vehicles, today_checklist_count=today_checklist_count, pending_notifications=pending_notifications, recent_checklists=recent_checklists)
+    recent_q = DailyChecklist.query.filter_by(is_deleted=False)
+    if not current_user.is_admin: recent_q = recent_q.filter_by(driver_id=current_user.id)
+    recent_checklists = recent_q.order_by(DailyChecklist.created_at.desc()).limit(5).all()
+    driver_costs=[]
+    if current_user.is_admin:
+        totals={}
+        for e in expenses:
+            totals[e.created_by.name]=totals.get(e.created_by.name, Decimal('0'))+Decimal(e.amount)
+        driver_costs=sorted(totals.items(), key=lambda x:x[1], reverse=True)[:10]
+    return render_template('dashboard.html', expenses=expenses[:8], total=total, fuel=fuel,
+        maint=maintenance_other, oil=oil, alerts=alerts, vehicles=vehicles,
+        today_checklist_count=today_checklist_count, pending_notifications=pending_notifications,
+        recent_checklists=recent_checklists, driver_costs=driver_costs)
 
 @main_bp.route('/fuel/new', methods=['GET','POST'])
 @login_required
@@ -139,9 +152,8 @@ def maintenance_new():
             db.session.add(exp); db.session.flush()
             exp.receipt_path = save_receipt(request.files.get('receipt'), exp.id)
             if request.form.get('is_oil_change') == 'on':
-                interval = request.form.get('oil_interval_km', type=int) or 3000
-                months = request.form.get('oil_interval_months', type=int) or 6
-                db.session.add(OilChange(change_date=start, odometer=km or vehicle.current_km or 0, next_change_km=(km or vehicle.current_km or 0)+interval, next_change_date=start+timedelta(days=months*30), oil_type=request.form.get('oil_type'), vehicle_id=vehicle.id, expense_id=exp.id))
+                base_km = km or vehicle.current_km or 0
+                db.session.add(OilChange(change_date=start, odometer=base_km, next_change_km=base_km+990, next_change_date=None, oil_type=request.form.get('oil_type'), vehicle_id=vehicle.id, expense_id=exp.id))
             add_admin_notification('MAINTENANCE', 'Nova manutenção', f'{current_user.name} registrou manutenção da moto {vehicle.plate}: {exp.maintenance.description}.')
             db.session.commit(); flash('Manutenção registrada.', 'success'); return redirect(url_for('main.history'))
         except Exception as exc:
@@ -151,7 +163,7 @@ def maintenance_new():
 @main_bp.route('/history')
 @login_required
 def history():
-    q = Expense.query
+    q = Expense.query.filter_by(is_deleted=False)
     if not current_user.is_admin: q = q.filter_by(created_by_id=current_user.id)
     kind = request.args.get('type')
     if kind: q = q.filter_by(expense_type=kind)
@@ -240,7 +252,7 @@ def checklist_new():
 @main_bp.route('/checklists')
 @login_required
 def checklist_history():
-    q = DailyChecklist.query
+    q = DailyChecklist.query.filter_by(is_deleted=False)
     if not current_user.is_admin:
         q = q.filter_by(driver_id=current_user.id)
     checklists = q.order_by(DailyChecklist.created_at.desc()).all()
@@ -291,7 +303,7 @@ def checklist_share_file(token, file_token):
 @login_required
 @admin_required
 def admin_checklists():
-    checklists = DailyChecklist.query.order_by(DailyChecklist.created_at.desc()).all()
+    checklists = DailyChecklist.query.filter_by(is_deleted=False).order_by(DailyChecklist.created_at.desc()).all()
     notifications = AdminNotification.query.order_by(AdminNotification.created_at.desc()).limit(50).all()
     return render_template('admin/checklists.html', checklists=checklists, notifications=notifications)
 
@@ -306,6 +318,26 @@ def users():
             u.set_password(request.form['password']); db.session.add(u); db.session.commit(); flash('Usuário criado.', 'success')
         except Exception as exc: db.session.rollback(); flash(str(exc), 'danger')
     return render_template('admin/users.html', users=User.query.order_by(User.active.desc(), User.name).all())
+
+@main_bp.route('/admin/users/<int:user_id>/reset-password', methods=['POST'])
+@login_required
+@admin_required
+def reset_user_password(user_id):
+    user = db.session.get(User, user_id) or abort(404)
+    password = request.form.get('new_password','')
+    confirmation = request.form.get('confirm_password','')
+    if len(password) < 6:
+        flash('A nova senha deve ter pelo menos 6 caracteres.', 'danger')
+    elif password != confirmation:
+        flash('As senhas não conferem.', 'danger')
+    else:
+        user.set_password(password)
+        user.must_change_password = False
+        db.session.add(AuditLog(action='RESET_PASSWORD', entity_type='USER', entity_id=user.id,
+            description=f'Senha redefinida pelo administrador para {user.name}.', user_id=current_user.id))
+        db.session.commit()
+        flash(f'Senha de {user.name} redefinida com sucesso.', 'success')
+    return redirect(url_for('main.users'))
 
 @main_bp.route('/admin/users/<int:user_id>/delete', methods=['POST'])
 @login_required
@@ -334,19 +366,88 @@ def delete_user(user_id):
         db.session.rollback(); flash(str(exc), 'danger')
     return redirect(url_for('main.users'))
 
+@main_bp.route('/admin/expense/<int:expense_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_expense(expense_id):
+    exp = db.session.get(Expense, expense_id) or abort(404)
+    reason = request.form.get('reason','').strip()
+    if request.form.get('confirmation') != 'EXCLUIR' or not reason:
+        flash('Informe o motivo e digite EXCLUIR para confirmar.', 'danger')
+        return redirect(request.referrer or url_for('main.history'))
+    exp.is_deleted=True; exp.deleted_at=datetime.utcnow(); exp.deleted_by_id=current_user.id; exp.deletion_reason=reason
+    db.session.add(AuditLog(action='DELETE_EXPENSE', entity_type='EXPENSE', entity_id=exp.id,
+        description=f'Lançamento {exp.expense_type} excluído logicamente. Motivo: {reason}', user_id=current_user.id))
+    db.session.commit(); flash('Lançamento removido dos painéis. Auditoria preservada.', 'success')
+    return redirect(request.referrer or url_for('main.history'))
+
+@main_bp.route('/admin/checklist/<int:checklist_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def delete_checklist(checklist_id):
+    checklist=db.session.get(DailyChecklist, checklist_id) or abort(404)
+    reason=request.form.get('reason','').strip()
+    if request.form.get('confirmation')!='EXCLUIR' or not reason:
+        flash('Informe o motivo e digite EXCLUIR para confirmar.', 'danger')
+        return redirect(request.referrer or url_for('main.admin_checklists'))
+    checklist.is_deleted=True; checklist.deleted_at=datetime.utcnow(); checklist.deleted_by_id=current_user.id; checklist.deletion_reason=reason
+    db.session.add(AuditLog(action='DELETE_CHECKLIST', entity_type='CHECKLIST', entity_id=checklist.id,
+        description=f'Checklist excluído logicamente. Motivo: {reason}', user_id=current_user.id))
+    db.session.commit(); flash('Checklist removido do histórico operacional. Auditoria preservada.', 'success')
+    return redirect(url_for('main.admin_checklists'))
+
+@main_bp.route('/vehicle/<int:vehicle_id>/borrow-summary')
+@login_required
+def borrow_vehicle_summary(vehicle_id):
+    vehicle=db.session.get(Vehicle, vehicle_id) or abort(404)
+    if current_user.is_admin or (current_user.vehicle and current_user.vehicle.id==vehicle.id):
+        return jsonify({'borrowed':False})
+    last_checklist=DailyChecklist.query.filter_by(vehicle_id=vehicle.id,is_deleted=False).order_by(DailyChecklist.created_at.desc()).first()
+    last_fuel=Expense.query.filter_by(vehicle_id=vehicle.id,expense_type='FUEL',is_deleted=False).order_by(Expense.expense_date.desc(),Expense.id.desc()).first()
+    return jsonify({
+        'borrowed':True, 'plate':vehicle.plate, 'vehicle':f'{vehicle.brand} {vehicle.model}',
+        'last_checklist': ({'date':last_checklist.checklist_date.strftime('%d/%m/%Y'),'condition':last_checklist.general_condition,'damage':last_checklist.has_damage} if last_checklist else None),
+        'last_fuel': ({'date':last_fuel.expense_date.strftime('%d/%m/%Y'),'amount':str(last_fuel.amount)} if last_fuel else None)
+    })
+
 @main_bp.route('/admin/notifications/status')
 @login_required
 @admin_required
 def notifications_status():
     unread = AdminNotification.query.filter_by(is_read=False).order_by(AdminNotification.id.desc()).all()
+    oil_alerts = [a for a in build_oil_alerts() if not a.get('message_sent')]
     latest = unread[0] if unread else None
+    oil_signature = ','.join(f"{a['vehicle'].id}-{a['oil_change'].id}-{a['level']}" for a in oil_alerts)
+    latest_oil = oil_alerts[0] if oil_alerts else None
     return jsonify({
-        'count': len(unread),
-        'latest_id': latest.id if latest else 0,
-        'latest_title': latest.title if latest else '',
-        'latest_message': latest.message if latest else '',
+        'count': len(unread) + len(oil_alerts),
+        'latest_id': f"{latest.id if latest else 0}:{oil_signature}",
+        'latest_title': latest.title if latest else (latest_oil['title'] if latest_oil else ''),
+        'latest_message': latest.message if latest else (f"{latest_oil['vehicle'].plate} · {latest_oil['detail']}" if latest_oil else ''),
         'alerts_url': url_for('main.alerts'),
     })
+
+@main_bp.route('/admin/notifications/<int:notification_id>/whatsapp-sent', methods=['POST'])
+@login_required
+@admin_required
+def notification_whatsapp_sent(notification_id):
+    notification=db.session.get(AdminNotification,notification_id) or abort(404)
+    notification.whatsapp_sent_at=datetime.utcnow(); notification.whatsapp_sent_by_id=current_user.id; notification.is_read=True
+    db.session.commit(); flash('Mensagem marcada como enviada e alerta retirado dos não lidos.', 'success')
+    return redirect(url_for('main.alerts'))
+
+@main_bp.route('/admin/oil-alert/sent', methods=['POST'])
+@login_required
+@admin_required
+def oil_alert_sent():
+    vehicle_id=request.form.get('vehicle_id',type=int); oil_change_id=request.form.get('oil_change_id',type=int); level=request.form.get('level','')
+    status=OilAlertStatus.query.filter_by(vehicle_id=vehicle_id,oil_change_id=oil_change_id,level=level).first()
+    if not status:
+        status=OilAlertStatus(vehicle_id=vehicle_id,oil_change_id=oil_change_id,level=level)
+        db.session.add(status)
+    status.message_sent_at=datetime.utcnow(); status.message_sent_by_id=current_user.id; status.is_read=True
+    db.session.commit(); flash('Mensagem enviada. O alerta saiu dos não lidos e ficou no histórico.', 'success')
+    return redirect(url_for('main.alerts'))
 
 @main_bp.route('/admin/notifications/read-all', methods=['POST'])
 @login_required
@@ -425,21 +526,30 @@ def alerts():
     recipients = AlertRecipient.query.filter_by(active=True).order_by(AlertRecipient.name).all()
     active_alerts = attach_whatsapp_links(build_oil_alerts(), recipients)
     system_notifications = AdminNotification.query.order_by(AdminNotification.created_at.desc()).limit(100).all()
-    return render_template('admin/alerts.html', alerts=active_alerts, recipients=recipients, system_notifications=system_notifications)
+    oil_history = OilAlertStatus.query.filter(OilAlertStatus.message_sent_at.isnot(None)).order_by(OilAlertStatus.message_sent_at.desc()).limit(50).all()
+    return render_template('admin/alerts.html', alerts=active_alerts, recipients=recipients, system_notifications=system_notifications, oil_history=oil_history)
 
 def build_oil_alerts(vehicle_id=None):
     q = Vehicle.query
     if vehicle_id: q = q.filter_by(id=vehicle_id)
     result=[]
     for v in q.all():
-        last = OilChange.query.filter_by(vehicle_id=v.id).order_by(OilChange.change_date.desc()).first()
+        last = OilChange.query.filter_by(vehicle_id=v.id).order_by(OilChange.change_date.desc(), OilChange.id.desc()).first()
         if not last:
-            result.append({'level':'warning','vehicle':v,'title':'Sem registro de troca de óleo','detail':'Cadastre a primeira troca.'}); continue
-        remaining = last.next_change_km - (v.current_km or 0)
-        overdue_date = last.next_change_date and date.today() > last.next_change_date
-        if remaining <= 0 or overdue_date: level='danger'; title='Troca de óleo vencida'
-        elif remaining <= 500: level='warning'; title='Troca de óleo próxima'
+            continue
+        # Regra operacional fixa: troca a cada 990 km.
+        expected = last.odometer + 990
+        if last.next_change_km != expected:
+            last.next_change_km = expected
+            db.session.commit()
+        remaining = expected - (v.current_km or 0)
+        if remaining <= 0: level='danger'; title='Troca de óleo vencida'
+        elif remaining <= 50: level='danger'; title='Troca de óleo urgente'
+        elif remaining <= 200: level='warning'; title='Troca de óleo próxima'
         else: continue
-        result.append({'level':level,'vehicle':v,'title':title,'detail':f"Atual {v.current_km or 0} km · Próxima {last.next_change_km} km · Restam {remaining} km"})
+        status=OilAlertStatus.query.filter_by(vehicle_id=v.id,oil_change_id=last.id,level=level).first()
+        result.append({'level':level,'vehicle':v,'oil_change':last,'title':title,
+            'detail':f"Atual {v.current_km or 0} km · Próxima {expected} km · Restam {remaining} km",
+            'message_sent':bool(status and status.message_sent_at),'sent_at':status.message_sent_at if status else None})
     return result
 

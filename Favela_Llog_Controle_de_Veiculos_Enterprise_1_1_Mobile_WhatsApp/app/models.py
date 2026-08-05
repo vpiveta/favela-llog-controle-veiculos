@@ -52,6 +52,12 @@ class Expense(db.Model):
     vehicle = db.relationship('Vehicle', back_populates='expenses')
     fuel = db.relationship('FuelDetail', back_populates='expense', uselist=False, cascade='all, delete-orphan')
     maintenance = db.relationship('MaintenanceDetail', back_populates='expense', uselist=False, cascade='all, delete-orphan')
+    oil_changes = db.relationship('OilChange', foreign_keys='OilChange.expense_id')
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False)
+    deleted_at = db.Column(db.DateTime)
+    deleted_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    deletion_reason = db.Column(db.Text)
+    deleted_by = db.relationship('User', foreign_keys=[deleted_by_id])
 
 class FuelDetail(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -132,6 +138,11 @@ class DailyChecklist(db.Model):
     owner_driver = db.relationship('User', foreign_keys=[owner_driver_id])
     vehicle = db.relationship('Vehicle')
     whatsapp_confirmed_by = db.relationship('User', foreign_keys=[whatsapp_confirmed_by_id])
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False)
+    deleted_at = db.Column(db.DateTime)
+    deleted_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    deletion_reason = db.Column(db.Text)
+    deleted_by = db.relationship('User', foreign_keys=[deleted_by_id])
 
 class AdminNotification(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -142,3 +153,31 @@ class AdminNotification(db.Model):
     is_read = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     checklist = db.relationship('DailyChecklist')
+    whatsapp_sent_at = db.Column(db.DateTime)
+    whatsapp_sent_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    whatsapp_sent_by = db.relationship('User', foreign_keys=[whatsapp_sent_by_id])
+
+
+class OilAlertStatus(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False, index=True)
+    oil_change_id = db.Column(db.Integer, db.ForeignKey('oil_change.id'), nullable=False, index=True)
+    level = db.Column(db.String(20), nullable=False)
+    message_sent_at = db.Column(db.DateTime)
+    message_sent_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    vehicle = db.relationship('Vehicle')
+    oil_change = db.relationship('OilChange')
+    message_sent_by = db.relationship('User')
+    __table_args__ = (db.UniqueConstraint('vehicle_id','oil_change_id','level', name='uq_oil_alert_cycle_level'),)
+
+class AuditLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    action = db.Column(db.String(60), nullable=False)
+    entity_type = db.Column(db.String(40), nullable=False)
+    entity_id = db.Column(db.Integer, nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    user = db.relationship('User')
