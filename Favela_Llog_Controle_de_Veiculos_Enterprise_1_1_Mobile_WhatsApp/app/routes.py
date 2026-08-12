@@ -60,8 +60,43 @@ def store_uploaded_file(file, category, entity_type, entity_id, images_only=Fals
     db.session.add(stored)
     return token
 
-def save_receipt(file, expense_id):
-    return store_uploaded_file(file, 'RECEIPT', 'EXPENSE', expense_id, images_only=False)
+def save_receipt(file, expense):
+    """Armazena comprovantes de carros e motos em categorias independentes."""
+    if expense.asset_type == 'CAR':
+        return store_uploaded_file(file, 'CAR_FUEL_RECEIPT', 'CAR_EXPENSE', expense.id, images_only=False)
+    return store_uploaded_file(file, 'MOTORCYCLE_RECEIPT', 'MOTORCYCLE_EXPENSE', expense.id, images_only=False)
+
+
+def save_car_plate_photo(file, expense):
+    return store_uploaded_file(file, 'CAR_PLATE_PHOTO', 'CAR_EXPENSE', expense.id, images_only=True)
+
+
+def car_plate_photo_ids(expenses):
+    ids = [expense.id for expense in expenses if expense.asset_type == 'CAR']
+    if not ids:
+        return set()
+    rows = db.session.query(StoredFile.entity_id).filter(
+        StoredFile.entity_type == 'CAR_EXPENSE',
+        StoredFile.category == 'CAR_PLATE_PHOTO',
+        StoredFile.entity_id.in_(ids),
+    ).all()
+    return {row[0] for row in rows}
+
+
+def parse_money(field, label='valor'):
+    raw = (request.form.get(field) or '').strip()
+    if ',' in raw:
+        raw = raw.replace('.', '').replace(',', '.')
+    try:
+        value = Decimal(raw)
+    except Exception as exc:
+        raise ValueError(f'Informe um {label} válido.') from exc
+    if not value.is_finite() or value <= 0:
+        raise ValueError(f'O {label} deve ser maior que zero.')
+    try:
+        return value.quantize(Decimal('0.01'))
+    except Exception as exc:
+        raise ValueError(f'Informe um {label} válido.') from exc
 
 def active_checklist_for_driver(user):
     """Última retirada ainda não encerrada por um checklist de devolução."""
@@ -77,13 +112,19 @@ def active_checklist_for_driver(user):
 
 def selected_vehicle(prefer_active_checklist=False):
     if current_user.is_admin:
-        vehicle_id = request.form.get('vehicle_id', type=int) or request.args.get('vehicle_id', type=int)
-        return db.session.get(Vehicle, vehicle_id) if vehicle_id else None
+        vehicle_id = (
+            request.form.get('motorcycle_vehicle_id', type=int)
+            or request.form.get('vehicle_id', type=int)
+            or request.args.get('vehicle_id', type=int)
+        )
+        vehicle = db.session.get(Vehicle, vehicle_id) if vehicle_id else None
+        return vehicle if vehicle and vehicle.vehicle_type == 'MOTORCYCLE' else None
     if prefer_active_checklist:
         active_checklist = active_checklist_for_driver(current_user)
         if active_checklist:
             return active_checklist.vehicle
-    return current_user.vehicle
+    vehicle = current_user.vehicle
+    return vehicle if vehicle and vehicle.vehicle_type == 'MOTORCYCLE' else None
 
 def add_admin_notification(notification_type, title, message, checklist_id=None):
     db.session.add(AdminNotification(
@@ -119,14 +160,45 @@ def dashboard():
         q = q.filter(Expense.created_by_id == current_user.id)
     expenses = q.order_by(Expense.expense_date.desc()).all()
     total = sum((Decimal(e.amount) for e in expenses), Decimal('0'))
-    fuel = sum((Decimal(e.amount) for e in expenses if e.expense_type == 'FUEL'), Decimal('0'))
-    oil = sum((Decimal(e.amount) for e in expenses if e.maintenance and e.oil_changes), Decimal('0'))
+    motorcycle_total = sum((Decimal(e.amount) for e in expenses if e.asset_type == 'MOTORCYCLE'), Decimal('0'))
+    car_total = sum((Decimal(e.amount) for e in expenses if e.asset_type == 'CAR'), Decimal('0'))
+    motorcycle_fuel = sum((Decimal(e.amount) for e in expenses if e.expense_type == 'FUEL' and e.asset_type == 'MOTORCYCLE'), Decimal('0'))
+    car_fuel = sum((Decimal(e.amount) for e in expenses if e.expense_type == 'FUEL' and e.asset_type == 'CAR'), Decimal('0'))
     maintenance_total = sum((Decimal(e.amount) for e in expenses if e.expense_type == 'MAINTENANCE'), Decimal('0'))
+    # O valor do óleo é explícito. A nota inteira de manutenção nunca é mais
+    # tratada automaticamente como troca de óleo.
+    oil = Decimal('0')
+    for expense in expenses:
+        detail = expense.maintenance
+        if expense.expense_type != 'MAINTENANCE' or not detail or not detail.is_oil_change or detail.oil_amount is None:
+            continue
+        explicit_oil = max(Decimal('0'), Decimal(detail.oil_amount))
+        oil += min(explicit_oil, Decimal(expense.amount))
     maintenance_other = maintenance_total - oil
-    vehicle_scope = current_user.vehicle.id if not current_user.is_admin and current_user.vehicle else None
-    oil_statuses = build_oil_statuses(vehicle_scope)
-    alerts = build_oil_alerts(vehicle_scope)
-    vehicles = Vehicle.query.order_by(Vehicle.plate).all() if current_user.is_admin else ([current_user.vehicle] if current_user.vehicle else [])
+    vehicle_scope = (
+        current_user.vehicle.id
+        if not current_user.is_admin and current_user.vehicle and current_user.vehicle.vehicle_type == 'MOTORCYCLE'
+        else None
+    )
+    oil_statuses = build_oil_statuses(vehicle_scope) if current_user.is_admin or vehicle_scope else []
+    alerts = build_oil_alerts(vehicle_scope) if current_user.is_admin or vehicle_scope else []
+    if current_user.is_admin:
+        motorcycles = Vehicle.query.filter_by(vehicle_type='MOTORCYCLE').order_by(Vehicle.plate).all()
+        cars = Vehicle.query.filter_by(vehicle_type='CAR').order_by(Vehicle.plate).all()
+    else:
+        motorcycles = [current_user.vehicle] if current_user.vehicle and current_user.vehicle.vehicle_type == 'MOTORCYCLE' else []
+        cars = []
+    maintenance_scope = Vehicle.query.filter_by(vehicle_type='MOTORCYCLE', status='MAINTENANCE')
+    if not current_user.is_admin:
+        maintenance_scope = maintenance_scope.filter_by(driver_id=current_user.id)
+    maintenance_vehicles = []
+    for maintenance_vehicle in maintenance_scope.order_by(Vehicle.plate).all():
+        open_expense = Expense.query.join(MaintenanceDetail).filter(
+            Expense.vehicle_id == maintenance_vehicle.id,
+            Expense.is_deleted.is_(False),
+            MaintenanceDetail.status == 'IN_PROGRESS',
+        ).order_by(Expense.expense_date.desc(), Expense.id.desc()).first()
+        maintenance_vehicles.append({'vehicle': maintenance_vehicle, 'expense': open_expense})
     today_checklists = DailyChecklist.query.filter_by(checklist_date=today, is_deleted=False)
     if not current_user.is_admin:
         today_checklists = today_checklists.filter_by(driver_id=current_user.id)
@@ -141,55 +213,91 @@ def dashboard():
         for e in expenses:
             totals[e.created_by.name]=totals.get(e.created_by.name, Decimal('0'))+Decimal(e.amount)
         driver_costs=sorted(totals.items(), key=lambda x:x[1], reverse=True)[:10]
-    return render_template('dashboard.html', expenses=expenses[:8], total=total, fuel=fuel,
-        maint=maintenance_other, oil=oil, alerts=alerts, oil_statuses=oil_statuses, vehicles=vehicles,
-        today_checklist_count=today_checklist_count, pending_notifications=pending_notifications,
+    return render_template('dashboard.html', expenses=expenses[:8], total=total,
+        motorcycle_total=motorcycle_total, car_total=car_total,
+        motorcycle_fuel=motorcycle_fuel, car_fuel=car_fuel,
+        maint=maintenance_other, oil=oil, alerts=alerts, oil_statuses=oil_statuses,
+        motorcycles=motorcycles, cars=cars, maintenance_vehicles=maintenance_vehicles,
+        car_plate_photo_ids=car_plate_photo_ids(expenses[:8]),
+        today=today, today_checklist_count=today_checklist_count, pending_notifications=pending_notifications,
         recent_checklists=recent_checklists, driver_costs=driver_costs)
 
 @main_bp.route('/fuel/new', methods=['GET','POST'])
 @login_required
 def fuel_new():
-    vehicles = Vehicle.query.order_by(Vehicle.plate).all() if current_user.is_admin else []
+    motorcycles = Vehicle.query.filter_by(vehicle_type='MOTORCYCLE').order_by(Vehicle.plate).all() if current_user.is_admin else []
+    cars = Vehicle.query.filter_by(vehicle_type='CAR').order_by(Vehicle.plate).all()
+    admins = User.query.filter_by(role='ADMIN', active=True).order_by(User.name).all()
     active_checklist = None if current_user.is_admin else active_checklist_for_driver(current_user)
-    vehicle = selected_vehicle(prefer_active_checklist=True)
+    motorcycle_vehicle = selected_vehicle(prefer_active_checklist=True)
+    selected_type = ((request.form.get('vehicle_type') if request.method == 'POST' else request.args.get('type')) or 'MOTORCYCLE').upper()
+    if selected_type not in {'MOTORCYCLE', 'CAR'}:
+        selected_type = 'MOTORCYCLE'
     if request.method == 'POST':
         active_checklist = None if current_user.is_admin else active_checklist_for_driver(current_user)
-        vehicle = selected_vehicle(prefer_active_checklist=True)
-        if not vehicle: flash('Nenhuma moto vinculada.', 'danger'); return redirect(request.url)
         try:
+            authorized_by = None
+            if selected_type == 'CAR':
+                vehicle = db.session.get(Vehicle, request.form.get('car_vehicle_id', type=int))
+                if not vehicle or vehicle.vehicle_type != 'CAR':
+                    raise ValueError('Selecione o carro abastecido.')
+                authorized_by = db.session.get(User, request.form.get('authorized_by_id', type=int))
+                if not authorized_by or not authorized_by.active or not authorized_by.is_admin:
+                    raise ValueError('Selecione o ADM que autorizou o abastecimento do carro.')
+                plate_photo = request.files.get('plate_photo')
+                if not plate_photo or not plate_photo.filename:
+                    raise ValueError('A foto da placa do carro é obrigatória.')
+            else:
+                vehicle = selected_vehicle(prefer_active_checklist=True)
+                if not vehicle:
+                    raise ValueError('Nenhuma moto vinculada.')
             odometer = request.form.get('odometer', type=int)
             if odometer is None or odometer < 0:
-                raise ValueError('Informe a quilometragem atual da moto.')
+                raise ValueError(f"Informe a quilometragem atual d{'o carro' if selected_type == 'CAR' else 'a moto'}.")
+            amount = parse_money('amount', 'valor do abastecimento')
+            liters = parse_money('liters', 'volume em litros') if request.form.get('liters','').strip() else None
             exp = Expense(
                 expense_type='FUEL',
                 expense_date=datetime.strptime(request.form['expense_date'],'%Y-%m-%d').date(),
-                amount=Decimal(request.form['amount'].replace(',','.')),
+                amount=amount, asset_type=selected_type,
                 odometer=odometer,
                 receipt_path='pending', notes=None,
-                created_by_id=current_user.id, vehicle_id=vehicle.id,
+                created_by_id=current_user.id, authorized_by_id=authorized_by.id if authorized_by else None,
+                vehicle_id=vehicle.id,
             )
             exp.fuel = FuelDetail(
-                liters=Decimal(request.form.get('liters','0').replace(',','.')) if request.form.get('liters') else None,
+                liters=liters,
                 fuel_type='GASOLINE',
-                station=request.form.get('station'),
+                station=request.form.get('station','').strip() or None,
             )
             if odometer > (vehicle.current_km or 0):
                 vehicle.current_km = odometer
             db.session.add(exp); db.session.flush()
-            exp.receipt_path = save_receipt(request.files.get('receipt'), exp.id)
-            add_admin_notification('FUEL', 'Novo abastecimento', f'{current_user.name} registrou abastecimento da moto {vehicle.plate}, com {odometer} km, no valor de R$ {exp.amount}.')
-            db.session.commit(); flash('Abastecimento registrado.', 'success'); return redirect(url_for('main.history'))
+            exp.receipt_path = save_receipt(request.files.get('receipt'), exp)
+            if selected_type == 'CAR':
+                save_car_plate_photo(plate_photo, exp)
+            asset_label = 'carro' if selected_type == 'CAR' else 'moto'
+            authorization = f' Autorizado por {authorized_by.name}.' if authorized_by else ''
+            add_admin_notification(
+                'CAR_FUEL' if selected_type == 'CAR' else 'FUEL',
+                f'Novo abastecimento de {asset_label}',
+                f'{current_user.name} registrou abastecimento do {asset_label} {vehicle.plate}, com {odometer} km, no valor de R$ {exp.amount}.{authorization}',
+            )
+            db.session.commit()
+            flash(f'Abastecimento do {asset_label} registrado.', 'success')
+            return redirect(url_for('main.history', asset_type=selected_type))
         except Exception as exc:
             db.session.rollback(); flash(str(exc), 'danger')
     return render_template(
-        'driver/fuel_form.html', vehicles=vehicles, vehicle=vehicle,
-        active_checklist=active_checklist, today=local_today().isoformat(),
+        'driver/fuel_form.html', motorcycles=motorcycles, cars=cars, admins=admins,
+        vehicle=motorcycle_vehicle, active_checklist=active_checklist,
+        selected_type=selected_type, today=local_today().isoformat(),
     )
 
 @main_bp.route('/maintenance/new', methods=['GET','POST'])
 @login_required
 def maintenance_new():
-    vehicles = Vehicle.query.order_by(Vehicle.plate).all() if current_user.is_admin else []
+    vehicles = Vehicle.query.filter_by(vehicle_type='MOTORCYCLE').order_by(Vehicle.plate).all() if current_user.is_admin else []
     vehicle = selected_vehicle()
     if request.method == 'POST':
         vehicle = selected_vehicle()
@@ -200,20 +308,70 @@ def maintenance_new():
             end = start if same else datetime.strptime(request.form['end_date'],'%Y-%m-%d').date()
             if end < start: raise ValueError('A data final não pode ser anterior à inicial.')
             km = request.form.get('odometer', type=int)
-            exp = Expense(expense_type='MAINTENANCE', expense_date=start, amount=Decimal(request.form['amount'].replace(',','.')), odometer=km, receipt_path='pending', notes=request.form.get('notes'), created_by_id=current_user.id, vehicle_id=vehicle.id)
-            exp.maintenance = MaintenanceDetail(start_date=start, same_day=same, end_date=end, description=request.form['description'], workshop=request.form.get('workshop'), status='COMPLETED' if same else request.form.get('status','IN_PROGRESS'))
+            if km is None or km < 0:
+                raise ValueError('Informe a quilometragem atual da moto.')
+            amount = parse_money('amount', 'valor total da manutenção')
+            is_oil_change = request.form.get('is_oil_change') == 'on'
+            oil_amount = parse_money('oil_amount', 'valor da troca de óleo') if is_oil_change else None
+            if oil_amount is not None and oil_amount > amount:
+                raise ValueError('O valor da troca de óleo não pode ser maior que o valor total da manutenção.')
+            maintenance_status = 'COMPLETED' if same else request.form.get('status','IN_PROGRESS')
+            if maintenance_status not in {'IN_PROGRESS', 'COMPLETED'}:
+                raise ValueError('Status de manutenção inválido.')
+            exp = Expense(
+                expense_type='MAINTENANCE', expense_date=start, amount=amount,
+                asset_type='MOTORCYCLE', odometer=km, receipt_path='pending',
+                notes=request.form.get('notes','').strip() or None,
+                created_by_id=current_user.id, vehicle_id=vehicle.id,
+            )
+            exp.maintenance = MaintenanceDetail(
+                start_date=start, same_day=same, end_date=end,
+                description=request.form['description'].strip(),
+                workshop=request.form.get('workshop','').strip() or None,
+                status=maintenance_status, is_oil_change=is_oil_change,
+                oil_amount=oil_amount,
+            )
             if km and km > (vehicle.current_km or 0): vehicle.current_km = km
             vehicle.status = 'AVAILABLE' if same or exp.maintenance.status == 'COMPLETED' else 'MAINTENANCE'
             db.session.add(exp); db.session.flush()
-            exp.receipt_path = save_receipt(request.files.get('receipt'), exp.id)
-            if request.form.get('is_oil_change') == 'on':
-                base_km = km or vehicle.current_km or 0
+            exp.receipt_path = save_receipt(request.files.get('receipt'), exp)
+            if is_oil_change:
+                # O novo ciclo sempre começa exatamente no KM informado no dia.
+                base_km = km
                 db.session.add(OilChange(change_date=start, odometer=base_km, next_change_km=base_km+990, next_change_date=None, oil_type=request.form.get('oil_type'), vehicle_id=vehicle.id, expense_id=exp.id))
-            add_admin_notification('MAINTENANCE', 'Nova manutenção', f'{current_user.name} registrou manutenção da moto {vehicle.plate}: {exp.maintenance.description}.')
+            linked_driver = vehicle.driver.name if vehicle.driver else 'Sem motorista vinculado'
+            add_admin_notification('MAINTENANCE', 'Nova manutenção', f'{current_user.name} registrou manutenção da moto {vehicle.plate} (responsável: {linked_driver}): {exp.maintenance.description}.')
             db.session.commit(); flash('Manutenção registrada.', 'success'); return redirect(url_for('main.history'))
         except Exception as exc:
             db.session.rollback(); flash(str(exc), 'danger')
     return render_template('driver/maintenance_form.html', vehicles=vehicles, vehicle=vehicle, today=local_today().isoformat())
+
+
+@main_bp.route('/admin/maintenance/<int:expense_id>/complete', methods=['POST'])
+@login_required
+@admin_required
+def complete_maintenance(expense_id):
+    expense = db.session.get(Expense, expense_id) or abort(404)
+    if expense.is_deleted or not expense.maintenance:
+        abort(404)
+    try:
+        completed_at = datetime.strptime(request.form.get('end_date') or local_today().isoformat(), '%Y-%m-%d').date()
+        if completed_at < expense.maintenance.start_date:
+            raise ValueError('A data de conclusão não pode ser anterior à entrada da moto.')
+        expense.maintenance.end_date = completed_at
+        expense.maintenance.status = 'COMPLETED'
+        expense.vehicle.status = 'AVAILABLE'
+        linked_driver = expense.vehicle.driver.name if expense.vehicle.driver else 'Sem motorista vinculado'
+        add_admin_notification(
+            'MAINTENANCE_COMPLETED', 'Manutenção concluída',
+            f'A manutenção da moto {expense.vehicle.plate} foi concluída. Motorista vinculado: {linked_driver}.',
+        )
+        db.session.commit()
+        flash('Manutenção concluída e moto liberada.', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        flash(str(exc), 'danger')
+    return redirect(request.referrer or url_for('main.dashboard'))
 
 @main_bp.route('/history')
 @login_required
@@ -222,7 +380,17 @@ def history():
     if not current_user.is_admin: q = q.filter_by(created_by_id=current_user.id)
     kind = request.args.get('type')
     if kind: q = q.filter_by(expense_type=kind)
-    return render_template('driver/history.html', expenses=q.order_by(Expense.expense_date.desc(), Expense.id.desc()).all())
+    expenses = q.order_by(Expense.expense_date.desc(), Expense.id.desc()).all()
+    motorcycle_expenses = [expense for expense in expenses if expense.asset_type == 'MOTORCYCLE']
+    car_expenses = [expense for expense in expenses if expense.asset_type == 'CAR']
+    return render_template(
+        'driver/history.html', motorcycle_expenses=motorcycle_expenses,
+        car_expenses=car_expenses,
+        motorcycle_total=sum((Decimal(e.amount) for e in motorcycle_expenses), Decimal('0')),
+        car_total=sum((Decimal(e.amount) for e in car_expenses), Decimal('0')),
+        car_plate_photo_ids=car_plate_photo_ids(car_expenses),
+        selected_asset_type=request.args.get('asset_type','').upper(),
+    )
 
 @main_bp.route('/expense/<int:expense_id>/receipt')
 @login_required
@@ -230,7 +398,11 @@ def expense_receipt(expense_id):
     exp = db.session.get(Expense, expense_id) or abort(404)
     if not current_user.is_admin and exp.created_by_id != current_user.id:
         return ('', 403)
-    stored = StoredFile.query.filter_by(entity_type='EXPENSE', entity_id=exp.id).order_by(StoredFile.id.desc()).first()
+    stored = StoredFile.query.filter(
+        StoredFile.entity_id == exp.id,
+        StoredFile.entity_type.in_(('EXPENSE', 'MOTORCYCLE_EXPENSE', 'CAR_EXPENSE')),
+        StoredFile.category.in_(('RECEIPT', 'MOTORCYCLE_RECEIPT', 'CAR_FUEL_RECEIPT')),
+    ).order_by(StoredFile.id.desc()).first()
     if stored:
         try:
             if stored.is_in_storage:
@@ -246,6 +418,34 @@ def expense_receipt(expense_id):
     if legacy.is_file():
         return send_from_directory(current_app.config['UPLOAD_FOLDER'], legacy.name, as_attachment=request.args.get('download') == '1')
     return render_template('file_unavailable.html', expense=exp), 404
+
+
+@main_bp.route('/expense/<int:expense_id>/plate-photo')
+@login_required
+def expense_plate_photo(expense_id):
+    exp = db.session.get(Expense, expense_id) or abort(404)
+    if exp.asset_type != 'CAR':
+        abort(404)
+    if not current_user.is_admin and exp.created_by_id != current_user.id:
+        return ('', 403)
+    stored = StoredFile.query.filter_by(
+        entity_type='CAR_EXPENSE', entity_id=exp.id, category='CAR_PLATE_PHOTO'
+    ).order_by(StoredFile.id.desc()).first_or_404()
+    try:
+        if stored.is_in_storage:
+            data, mime = download_bytes(stored.storage_bucket, stored.storage_path)
+        else:
+            data, mime = stored.content, stored.mime_type
+        if not data:
+            abort(404)
+        return send_file(
+            BytesIO(data), mimetype=mime or stored.mime_type,
+            download_name=stored.original_name,
+            as_attachment=request.args.get('download') == '1',
+        )
+    except SupabaseStorageError as exc:
+        current_app.logger.exception('Falha ao abrir foto da placa no Storage')
+        abort(503, description=str(exc))
 
 @main_bp.route('/receipt/<path:name>')
 @login_required
@@ -274,8 +474,8 @@ def stored_file(token):
 @main_bp.route('/checklist/new', methods=['GET','POST'])
 @login_required
 def checklist_new():
-    own_vehicle = current_user.vehicle
-    all_vehicles = Vehicle.query.order_by(Vehicle.plate).all()
+    own_vehicle = current_user.vehicle if current_user.vehicle and current_user.vehicle.vehicle_type == 'MOTORCYCLE' else None
+    all_vehicles = Vehicle.query.filter_by(vehicle_type='MOTORCYCLE').order_by(Vehicle.plate).all()
     requested_type = (request.form.get('checklist_type') if request.method == 'POST' else request.args.get('type')) or 'RETIRADA'
     checklist_type = requested_type.upper()
     if checklist_type not in {'RETIRADA', 'DEVOLUCAO'}:
@@ -286,7 +486,7 @@ def checklist_new():
         try:
             vehicle_id = request.form.get('vehicle_id', type=int)
             vehicle = db.session.get(Vehicle, vehicle_id)
-            if not vehicle:
+            if not vehicle or vehicle.vehicle_type != 'MOTORCYCLE':
                 raise ValueError('Selecione a moto utilizada.')
             if checklist_type == 'DEVOLUCAO' and active_before and vehicle.id != active_before.vehicle_id:
                 raise ValueError(f'A devolução ativa deve ser feita para a moto {active_before.vehicle.plate}.')
@@ -499,6 +699,15 @@ def delete_expense(expense_id):
         flash('Informe o motivo e digite EXCLUIR para confirmar.', 'danger')
         return redirect(request.referrer or url_for('main.history'))
     exp.is_deleted=True; exp.deleted_at=utc_now(); exp.deleted_by_id=current_user.id; exp.deletion_reason=reason
+    if exp.maintenance and exp.maintenance.status == 'IN_PROGRESS':
+        another_open = Expense.query.join(MaintenanceDetail).filter(
+            Expense.vehicle_id == exp.vehicle_id,
+            Expense.id != exp.id,
+            Expense.is_deleted.is_(False),
+            MaintenanceDetail.status == 'IN_PROGRESS',
+        ).first()
+        if not another_open and exp.vehicle.status == 'MAINTENANCE':
+            exp.vehicle.status = 'AVAILABLE'
     db.session.add(AuditLog(action='DELETE_EXPENSE', entity_type='EXPENSE', entity_id=exp.id,
         description=f'Lançamento {exp.expense_type} excluído logicamente. Motivo: {reason}', user_id=current_user.id))
     db.session.commit(); flash('Lançamento removido dos painéis. Auditoria preservada.', 'success')
@@ -523,6 +732,8 @@ def delete_checklist(checklist_id):
 @login_required
 def borrow_vehicle_summary(vehicle_id):
     vehicle=db.session.get(Vehicle, vehicle_id) or abort(404)
+    if vehicle.vehicle_type != 'MOTORCYCLE':
+        abort(404)
     if current_user.is_admin or (current_user.vehicle and current_user.vehicle.id==vehicle.id):
         return jsonify({'borrowed':False})
     last_checklist=DailyChecklist.query.filter_by(vehicle_id=vehicle.id,is_deleted=False).order_by(DailyChecklist.created_at.desc()).first()
@@ -582,6 +793,9 @@ def notifications_read_all():
     return redirect(request.referrer or url_for('main.alerts'))
 
 def assign_vehicle_driver(vehicle, driver_id):
+    if vehicle.vehicle_type != 'MOTORCYCLE':
+        vehicle.driver_id = None
+        return
     if driver_id:
         other = Vehicle.query.filter(Vehicle.driver_id == driver_id, Vehicle.id != vehicle.id).first()
         if other:
@@ -594,14 +808,23 @@ def assign_vehicle_driver(vehicle, driver_id):
 def vehicles():
     if request.method == 'POST':
         try:
+            vehicle_type = request.form.get('vehicle_type','MOTORCYCLE').upper()
+            if vehicle_type not in {'MOTORCYCLE', 'CAR'}:
+                raise ValueError('Tipo de veículo inválido.')
+            status = request.form.get('status','AVAILABLE').upper()
+            if status not in {'AVAILABLE', 'MAINTENANCE', 'BLOCKED'}:
+                raise ValueError('Status de veículo inválido.')
+            if vehicle_type == 'CAR' and status == 'MAINTENANCE':
+                status = 'AVAILABLE'
             v = Vehicle(
                 plate=request.form['plate'].upper().replace('-','').strip(),
                 brand=request.form['brand'].strip(), model=request.form['model'].strip(),
                 year=request.form.get('year', type=int), current_km=request.form.get('current_km', type=int) or 0,
+                vehicle_type=vehicle_type, status=status,
             )
             db.session.add(v); db.session.flush()
             assign_vehicle_driver(v, request.form.get('driver_id', type=int))
-            db.session.commit(); flash('Veículo cadastrado.', 'success')
+            db.session.commit(); flash(f"{'Moto' if vehicle_type == 'MOTORCYCLE' else 'Carro'} cadastrado.", 'success')
         except Exception as exc: db.session.rollback(); flash(str(exc), 'danger')
     drivers = User.query.filter_by(role='DRIVER', active=True).order_by(User.name).all()
     return render_template('admin/vehicles.html', vehicles=Vehicle.query.order_by(Vehicle.plate).all(), drivers=drivers)
@@ -621,7 +844,14 @@ def edit_vehicle(vehicle_id):
         vehicle.model = request.form['model'].strip()
         vehicle.year = request.form.get('year', type=int)
         vehicle.current_km = request.form.get('current_km', type=int) or 0
-        vehicle.status = request.form.get('status') or 'AVAILABLE'
+        vehicle_type = request.form.get('vehicle_type','MOTORCYCLE').upper()
+        if vehicle_type not in {'MOTORCYCLE', 'CAR'}:
+            raise ValueError('Tipo de veículo inválido.')
+        vehicle.vehicle_type = vehicle_type
+        status = request.form.get('status') or 'AVAILABLE'
+        if status not in {'AVAILABLE', 'MAINTENANCE', 'BLOCKED'}:
+            raise ValueError('Status de veículo inválido.')
+        vehicle.status = 'AVAILABLE' if vehicle_type == 'CAR' and status == 'MAINTENANCE' else status
         assign_vehicle_driver(vehicle, request.form.get('driver_id', type=int))
         db.session.commit(); flash('Veículo atualizado com sucesso.', 'success')
     except Exception as exc:
@@ -680,12 +910,15 @@ def alerts():
 
 def build_oil_statuses(vehicle_id=None):
     """Calcula o ciclo pelo hodômetro lançado nos checklists desde a última troca."""
-    q = Vehicle.query
+    q = Vehicle.query.filter_by(vehicle_type='MOTORCYCLE')
     if vehicle_id:
         q = q.filter_by(id=vehicle_id)
     result = []
     for vehicle in q.order_by(Vehicle.plate).all():
-        last_change = OilChange.query.filter_by(vehicle_id=vehicle.id).order_by(
+        last_change = OilChange.query.outerjoin(Expense, OilChange.expense_id == Expense.id).filter(
+            OilChange.vehicle_id == vehicle.id,
+            (OilChange.expense_id.is_(None)) | (Expense.is_deleted.is_(False)),
+        ).order_by(
             OilChange.change_date.desc(), OilChange.id.desc()
         ).first()
         if not last_change:
@@ -697,13 +930,15 @@ def build_oil_statuses(vehicle_id=None):
             })
             continue
 
-        latest_checklist = DailyChecklist.query.filter(
+        latest_checklist_km = db.session.query(db.func.max(DailyChecklist.odometer)).filter(
             DailyChecklist.vehicle_id == vehicle.id,
             DailyChecklist.is_deleted.is_(False),
             DailyChecklist.checklist_date >= last_change.change_date,
-        ).order_by(DailyChecklist.checklist_date.desc(), DailyChecklist.created_at.desc(), DailyChecklist.id.desc()).first()
+        ).scalar()
 
-        current_km = latest_checklist.odometer if latest_checklist else (vehicle.current_km or last_change.odometer)
+        # O ciclo avança apenas pelo hodômetro dos checklists diários. Valores de
+        # abastecimento ou edição cadastral não alteram silenciosamente o alerta.
+        current_km = latest_checklist_km if latest_checklist_km is not None else last_change.odometer
         current_km = max(current_km or 0, last_change.odometer)
         traveled = max(0, current_km - last_change.odometer)
         remaining = 990 - traveled
@@ -716,16 +951,12 @@ def build_oil_statuses(vehicle_id=None):
             level, label = 'warning', 'Atenção'
         else:
             level, label = 'success', 'Normal'
-        if last_change.next_change_km != target:
-            last_change.next_change_km = target
         result.append({
             'vehicle': vehicle, 'oil_change': last_change,
             'base_km': last_change.odometer, 'current_km': current_km,
             'traveled_km': traveled, 'remaining_km': remaining,
             'target_km': target, 'level': level, 'status_label': label,
         })
-    if db.session.dirty:
-        db.session.commit()
     return result
 
 def build_oil_alerts(vehicle_id=None):

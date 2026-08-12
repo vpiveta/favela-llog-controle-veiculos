@@ -1,1 +1,47 @@
-{% extends 'base.html' %}{% block content %}<header class="page-head"><div><h2>Histórico</h2><p>Lançamentos registrados.</p></div></header><section class="panel">{% if current_user.is_admin %}<label class="list-search">Buscar motorista ou placa<input type="search" placeholder="Ex.: João ou ABC1D23" data-list-search="historyTable"></label>{% endif %}<div class="table-wrap"><table id="historyTable"><thead><tr><th>Data</th><th>Tipo</th><th>Placa</th><th>Motorista</th><th>KM</th><th>Descrição</th><th>Valor</th><th>Nota</th>{% if current_user.is_admin %}<th>Ações</th>{% endif %}</tr></thead><tbody>{% for e in expenses %}<tr data-search-item="{{ (e.created_by.name ~ ' ' ~ e.vehicle.plate)|lower }}"><td>{{e.expense_date.strftime('%d/%m/%Y')}}</td><td>{{'Abastecimento' if e.expense_type=='FUEL' else 'Manutenção'}}</td><td>{{e.vehicle.plate}}</td><td>{{e.created_by.name}}</td><td>{{(e.odometer|string ~ ' km') if e.odometer is not none else '-'}}</td><td>{% if e.maintenance %}{{e.maintenance.description}}{% else %}Gasolina{% if e.fuel.station %} · {{e.fuel.station}}{% endif %}{% endif %}</td><td>R$ {{'%.2f'|format(e.amount)|replace('.',',')}}</td><td><a href="{{url_for('main.expense_receipt',expense_id=e.id)}}" target="_blank">Abrir</a> · <a href="{{url_for('main.expense_receipt',expense_id=e.id,download=1)}}">Baixar</a></td>{% if current_user.is_admin %}<td><button class="btn danger compact" type="button" data-delete-expense="{{e.id}}">Excluir</button></td>{% endif %}</tr>{% else %}<tr><td colspan="9">Nenhum lançamento.</td></tr>{% endfor %}</tbody></table></div>{% if current_user.is_admin %}<p class="muted search-empty" data-search-empty="historyTable" hidden>Nenhum lançamento encontrado.</p>{% endif %}</section>{% include 'admin/delete_modal.html' %}{% endblock %}
+{% extends 'base.html' %}
+{% macro expense_table(expenses, table_id) %}
+<div class="table-wrap">
+  <table id="{{table_id}}">
+    <thead><tr><th>Data</th><th>Tipo</th><th>Placa</th><th>Foto da placa</th><th>Lançado por</th><th>KM</th><th>Descrição</th><th>ADM autorizador</th><th>Valor</th><th>Nota</th>{% if current_user.is_admin %}<th>Ações</th>{% endif %}</tr></thead>
+    <tbody>
+      {% for e in expenses %}
+      <tr data-search-item="{{(e.created_by.name ~ ' ' ~ e.vehicle.plate ~ ' ' ~ (e.authorized_by.name if e.authorized_by else ''))|lower}}">
+        <td>{{e.expense_date.strftime('%d/%m/%Y')}}</td>
+        <td>{% if e.asset_type=='CAR' %}Abastecimento de carro{% elif e.expense_type=='FUEL' %}Abastecimento de moto{% elif e.maintenance and e.maintenance.is_oil_change %}Manutenção + troca de óleo{% elif e.oil_changes %}Troca de óleo · valor legado não discriminado{% else %}Manutenção de moto{% endif %}</td>
+        <td>{{e.vehicle.plate}}</td>
+        <td>{% if e.asset_type=='CAR' and e.id in car_plate_photo_ids %}<a href="{{url_for('main.expense_plate_photo',expense_id=e.id)}}" target="_blank">Abrir</a> · <a href="{{url_for('main.expense_plate_photo',expense_id=e.id,download=1)}}">Baixar</a>{% elif e.asset_type=='CAR' %}<span class="muted">Registro anterior</span>{% else %}-{% endif %}</td>
+        <td>{{e.created_by.name}}</td>
+        <td>{{(e.odometer|string ~ ' km') if e.odometer is not none else '-'}}</td>
+        <td>{% if e.maintenance %}{{e.maintenance.description}}{% if e.maintenance.is_oil_change and e.maintenance.oil_amount is not none %} · Óleo: R$ {{'%.2f'|format(e.maintenance.oil_amount)|replace('.',',')}}{% endif %}{% else %}Gasolina{% if e.fuel and e.fuel.station %} · {{e.fuel.station}}{% endif %}{% endif %}</td>
+        <td>{{e.authorized_by.name if e.authorized_by else '-'}}</td>
+        <td>R$ {{'%.2f'|format(e.amount)|replace('.',',')}}</td>
+        <td><a href="{{url_for('main.expense_receipt',expense_id=e.id)}}" target="_blank">Abrir</a> · <a href="{{url_for('main.expense_receipt',expense_id=e.id,download=1)}}">Baixar</a></td>
+        {% if current_user.is_admin %}<td><button class="btn danger compact" type="button" data-delete-expense="{{e.id}}">Excluir</button></td>{% endif %}
+      </tr>
+      {% else %}<tr><td colspan="11">Nenhum lançamento nesta categoria.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+{% block content %}
+<header class="page-head">
+  <div><h2>Gastos e comprovantes</h2><p>Valores e notas organizados separadamente por tipo de veículo.</p></div>
+  <div class="actions"><a class="btn alt" href="{{url_for('main.fuel_new',type='MOTORCYCLE')}}">+ Moto</a><a class="btn alt" href="{{url_for('main.fuel_new',type='CAR')}}">+ Carro</a></div>
+</header>
+
+<section class="panel expense-category-panel {{'category-focus' if selected_asset_type=='MOTORCYCLE'}}">
+  <div class="section-head"><div><h3>Motos</h3><p class="muted">Abastecimentos, manutenções e trocas de óleo.</p></div><strong class="category-total">R$ {{'%.2f'|format(motorcycle_total)|replace('.',',')}}</strong></div>
+  {% if current_user.is_admin %}<label class="list-search">Buscar motorista ou placa<input type="search" placeholder="Ex.: João ou ABC1D23" data-list-search="motorcycleHistoryTable"></label>{% endif %}
+  {{expense_table(motorcycle_expenses, 'motorcycleHistoryTable')}}
+  {% if current_user.is_admin %}<p class="muted search-empty" data-search-empty="motorcycleHistoryTable" hidden>Nenhum lançamento de moto encontrado.</p>{% endif %}
+</section>
+
+<section class="panel expense-category-panel car-category {{'category-focus' if selected_asset_type=='CAR'}}">
+  <div class="section-head"><div><h3>Carros</h3><p class="muted">Abastecimentos autorizados com nota e foto da placa.</p></div><strong class="category-total">R$ {{'%.2f'|format(car_total)|replace('.',',')}}</strong></div>
+  {% if current_user.is_admin %}<label class="list-search">Buscar carro, responsável ou ADM<input type="search" placeholder="Ex.: ABC1D23 ou Victor" data-list-search="carHistoryTable"></label>{% endif %}
+  {{expense_table(car_expenses, 'carHistoryTable')}}
+  {% if current_user.is_admin %}<p class="muted search-empty" data-search-empty="carHistoryTable" hidden>Nenhum abastecimento de carro encontrado.</p>{% endif %}
+</section>
+{% include 'admin/delete_modal.html' %}
+{% endblock %}

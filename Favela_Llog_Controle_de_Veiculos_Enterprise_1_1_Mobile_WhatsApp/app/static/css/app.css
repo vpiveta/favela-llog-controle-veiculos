@@ -65,3 +65,29 @@ body::before{background:radial-gradient(circle at 75% 10%,rgba(56,214,208,.16),t
 .item-status.attention b{color:#ffd979}
 .content>.panel+.panel{margin-top:18px}
 @media(max-width:600px){.checklist-type-switch{width:100%}.checklist-type-switch .btn{flex:1}.item-status-grid{grid-template-columns:1fr}}
+
+/* Enterprise 1.7 · separação de carros/motos e manutenção operacional */
+[hidden]{display:none!important}
+.actions{flex-wrap:wrap}
+.metrics-fleet{grid-template-columns:repeat(auto-fit,minmax(175px,1fr))}
+.metrics article small{display:block;margin-top:7px;color:var(--muted);font-size:11px}
+.fuel-section{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:14px;border:1px solid var(--border);border-radius:14px;background:rgba(8,12,16,.45)}
+.fuel-section>.vehicle-summary,.fuel-section>.notice{grid-column:1/-1}
+.readonly{display:grid;gap:5px}.readonly span{color:var(--muted)}
+.expense-donut{position:relative}
+.expense-donut-four{background:conic-gradient(#38d6d0 0 var(--moto-fuel),#3b82f6 var(--moto-fuel) calc(var(--moto-fuel) + var(--car-fuel)),#38bdf8 calc(var(--moto-fuel) + var(--car-fuel)) calc(var(--moto-fuel) + var(--car-fuel) + var(--maint)),#a78bfa calc(var(--moto-fuel) + var(--car-fuel) + var(--maint)) 100%)}
+.legend-moto-fuel{background:#38d6d0}.legend-car-fuel{background:#3b82f6}
+.maintenance-fleet-panel{margin-bottom:18px}
+.maintenance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.maintenance-card{display:grid;gap:8px;padding:15px;border:1px solid rgba(255,189,74,.42);border-left:4px solid var(--warning);border-radius:14px;background:#111418}
+.maintenance-card>span,.maintenance-card>small{color:var(--muted)}
+.complete-maintenance-form{display:grid;grid-template-columns:1fr auto;align-items:end;gap:8px;margin-top:5px}.complete-maintenance-form label{display:grid;gap:5px;color:var(--muted);font-size:12px}.complete-maintenance-form input{min-height:40px;padding:8px;border:1px solid var(--border);border-radius:9px;background:#0e1115;color:#fff}
+.category-total{font-size:23px;color:var(--aqua)}
+.expense-category-panel{scroll-margin-top:18px}
+.expense-category-panel.category-focus{border-color:rgba(56,214,208,.72);box-shadow:0 0 0 2px rgba(56,214,208,.08)}
+.car-category.category-focus{border-color:rgba(59,130,246,.72);box-shadow:0 0 0 2px rgba(59,130,246,.09)}
+.fleet-counts,.vehicle-card-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.car-pill{color:#93c5fd;background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.38)}
+.operation-badge.car{background:rgba(59,130,246,.16);border:1px solid rgba(59,130,246,.42);color:#bfdbfe}
+.file-link-row{display:block;white-space:nowrap}.file-link-row+.file-link-row{margin-top:5px}
+@media(max-width:600px){.fuel-section{grid-template-columns:1fr}.fuel-section>*{grid-column:auto}.maintenance-grid{grid-template-columns:1fr}.complete-maintenance-form{grid-template-columns:1fr}.fleet-counts{justify-content:flex-start}.vehicle-card-actions{width:100%}.vehicle-card-actions .btn{flex:1}}

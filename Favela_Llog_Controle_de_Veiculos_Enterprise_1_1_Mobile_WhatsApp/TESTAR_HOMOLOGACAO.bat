@@ -7,7 +7,7 @@ if errorlevel 1 exit /b 1
 set "DATABASE_URL="
 ".venv\Scripts\python.exe" -m compileall -q app scripts run.py wsgi.py
 if errorlevel 1 goto :erro
-".venv\Scripts\python.exe" -c "from app import create_app; a=create_app(); c=a.test_client(); r=c.get('/login'); assert r.status_code==200; print('OK: login e inicializacao validados')"
+".venv\Scripts\python.exe" scripts\testar_enterprise_17.py
 if errorlevel 1 goto :erro
 echo.
 echo HOMOLOGACAO APROVADA.

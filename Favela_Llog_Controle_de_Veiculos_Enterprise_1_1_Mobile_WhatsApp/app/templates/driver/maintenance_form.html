@@ -1,1 +1,45 @@
-{% extends 'base.html' %}{% block content %}<header class="page-head"><div><h2>Nova manutenção</h2><p>Registre período, serviço, valor e comprovante.</p></div></header><form method="post" enctype="multipart/form-data" class="panel form-grid">{% if current_user.is_admin %}<label>Veículo<select name="vehicle_id" required><option value="">Selecione</option>{% for v in vehicles %}<option value="{{v.id}}">{{v.plate}} · {{v.driver.name if v.driver else 'Sem motorista vinculado'}}</option>{% endfor %}</select></label>{% else %}<div class="readonly">{{vehicle.plate if vehicle else 'Sem moto vinculada'}}</div>{% endif %}<label>Data inicial<input type="date" name="start_date" value="{{today}}" required></label><label class="check"><input type="checkbox" name="same_day" id="sameDay" checked> Serviço no mesmo dia</label><label id="endDateWrap">Data de retirada<input type="date" name="end_date"></label><label>Status<select name="status"><option value="IN_PROGRESS">Em manutenção</option><option value="COMPLETED">Concluída</option></select></label><label>Valor<input name="amount" required></label><label>Quilometragem<input type="number" name="odometer" required></label><label>Oficina<input name="workshop"></label><label class="wide">Descrição<textarea name="description" required></textarea></label><label class="check"><input type="checkbox" name="is_oil_change" id="oilChange"> É troca de óleo</label><div class="wide oil-fields" id="oilFields"><label>Tipo de óleo<input name="oil_type"></label><div class="readonly"><b>Próxima troca</b><span>Calculada automaticamente em +990 km</span></div></div><label class="wide camera-field"><span>Foto da nota</span><span class="camera-button">📷 Abrir câmera</span><input class="camera-input" type="file" name="receipt" accept="image/*" capture="environment" required data-preview="maintenancePreview"><small>A câmera traseira será aberta no celular.</small></label><img id="maintenancePreview" class="receipt-preview" alt="Pré-visualização da nota" hidden><label class="wide">Observação<textarea name="notes"></textarea></label><button class="wide">Salvar manutenção</button></form>{% endblock %}
+{% extends 'base.html' %}
+{% block content %}
+<header class="page-head"><div><h2>Nova manutenção de moto</h2><p>Registre o serviço, identifique o motorista responsável e informe separadamente o custo do óleo.</p></div></header>
+<form method="post" enctype="multipart/form-data" class="panel form-grid">
+  {% if current_user.is_admin %}
+  <label>Moto
+    <select name="motorcycle_vehicle_id" id="maintenanceVehicle" required>
+      <option value="">Selecione</option>
+      {% for v in vehicles %}<option value="{{v.id}}" data-driver="{{v.driver.name if v.driver else 'Sem motorista vinculado'}}" {% if request.form.get('motorcycle_vehicle_id',type=int)==v.id %}selected{% endif %}>{{v.plate}} · {{v.driver.name if v.driver else 'Sem motorista vinculado'}}</option>{% endfor %}
+    </select>
+  </label>
+  <div class="readonly" id="maintenanceDriverInfo"><b>Motorista responsável</b><span>Selecione uma moto.</span></div>
+  {% else %}
+  <div class="vehicle-summary wide">
+    <small>Moto vinculada</small>
+    <strong>{{vehicle.plate if vehicle else 'Sem moto vinculada'}}</strong>
+    <span>Motorista responsável: {{vehicle.driver.name if vehicle and vehicle.driver else 'Sem motorista vinculado'}}</span>
+  </div>
+  {% endif %}
+  <label>Data inicial<input type="date" name="start_date" value="{{request.form.get('start_date',today)}}" required></label>
+  <label class="check"><input type="checkbox" name="same_day" id="sameDay" {% if request.method!='POST' or request.form.get('same_day')=='on' %}checked{% endif %}> Serviço no mesmo dia</label>
+  <label id="endDateWrap">Data de retirada<input type="date" name="end_date" value="{{request.form.get('end_date','')}}"></label>
+  <label>Status
+    <select name="status">
+      <option value="IN_PROGRESS" {% if request.form.get('status')=='IN_PROGRESS' %}selected{% endif %}>Em manutenção</option>
+      <option value="COMPLETED" {% if request.form.get('status')=='COMPLETED' %}selected{% endif %}>Concluída</option>
+    </select>
+  </label>
+  <label>Valor total da manutenção (R$)<input name="amount" inputmode="decimal" value="{{request.form.get('amount','')}}" placeholder="0,00" required></label>
+  <label>Quilometragem<input type="number" name="odometer" min="0" value="{{request.form.get('odometer','')}}" required></label>
+  <label>Oficina<input name="workshop" value="{{request.form.get('workshop','')}}"></label>
+  <label class="wide">Descrição<textarea name="description" required>{{request.form.get('description','')}}</textarea></label>
+  <label class="check wide"><input type="checkbox" name="is_oil_change" id="oilChange" {% if request.form.get('is_oil_change')=='on' %}checked{% endif %}> Esta manutenção inclui troca de óleo</label>
+  <div class="wide oil-fields" id="oilFields">
+    <label>Tipo de óleo<input name="oil_type" value="{{request.form.get('oil_type','')}}"></label>
+    <label>Valor exato da troca de óleo (R$)<input name="oil_amount" id="oilAmount" inputmode="decimal" value="{{request.form.get('oil_amount','')}}" placeholder="0,00"></label>
+    <div class="readonly"><b>Próxima troca</b><span>Calculada automaticamente em +990 km</span></div>
+  </div>
+  <div class="notice wide"><b>Cálculo corrigido:</b> o card “Troca de óleo” usa somente o valor exato informado acima; o restante permanece em manutenção.</div>
+  <label class="wide camera-field"><span>Foto da nota</span><span class="camera-button">📷 Abrir câmera</span><input class="camera-input" type="file" name="receipt" accept="image/*" capture="environment" required data-preview="maintenancePreview"><small>A câmera traseira será aberta no celular. Também é possível escolher uma foto existente.</small></label>
+  <img id="maintenancePreview" class="receipt-preview" alt="Pré-visualização da nota" hidden>
+  <label class="wide">Observação<textarea name="notes">{{request.form.get('notes','')}}</textarea></label>
+  <button class="wide">Salvar manutenção</button>
+</form>
+{% endblock %}

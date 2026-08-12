@@ -30,6 +30,7 @@ class Vehicle(db.Model):
     model = db.Column(db.String(100), nullable=False)
     year = db.Column(db.Integer)
     current_km = db.Column(db.Integer, default=0)
+    vehicle_type = db.Column(db.String(20), default='MOTORCYCLE', nullable=False, index=True)
     status = db.Column(db.String(30), default='AVAILABLE')
     photo = db.Column(db.String(255))
     driver_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True)
@@ -42,13 +43,18 @@ class Expense(db.Model):
     expense_type = db.Column(db.String(20), nullable=False)  # FUEL / MAINTENANCE
     expense_date = db.Column(db.Date, nullable=False, default=local_today)
     amount = db.Column(db.Numeric(12, 2), nullable=False)
+    # Snapshot do tipo do veículo no momento do lançamento. Assim, relatórios e
+    # comprovantes continuam separados mesmo que o cadastro seja editado depois.
+    asset_type = db.Column(db.String(20), default='MOTORCYCLE', nullable=False, index=True)
     odometer = db.Column(db.Integer)
     receipt_path = db.Column(db.String(255), nullable=False)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=utc_now)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    authorized_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False)
     created_by = db.relationship('User', foreign_keys=[created_by_id])
+    authorized_by = db.relationship('User', foreign_keys=[authorized_by_id])
     vehicle = db.relationship('Vehicle', back_populates='expenses')
     fuel = db.relationship('FuelDetail', back_populates='expense', uselist=False, cascade='all, delete-orphan')
     maintenance = db.relationship('MaintenanceDetail', back_populates='expense', uselist=False, cascade='all, delete-orphan')
@@ -75,6 +81,9 @@ class MaintenanceDetail(db.Model):
     description = db.Column(db.Text, nullable=False)
     workshop = db.Column(db.String(160))
     status = db.Column(db.String(30), default='COMPLETED')
+    is_oil_change = db.Column(db.Boolean, default=False, nullable=False)
+    # Valor exato da parcela referente ao óleo. Não inferir pelo total da nota.
+    oil_amount = db.Column(db.Numeric(12, 2))
     expense_id = db.Column(db.Integer, db.ForeignKey('expense.id'), unique=True, nullable=False)
     expense = db.relationship('Expense', back_populates='maintenance')
 

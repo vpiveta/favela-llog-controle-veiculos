@@ -54,3 +54,17 @@ Configure `DATABASE_URL` com um PostgreSQL/Supabase e publique no Render.
 - Checklist de devolução encerra a moto temporária e restaura a moto própria no abastecimento.
 - Horários exibidos corretamente no fuso `America/Sao_Paulo`.
 - Migração automática e compatível com bancos existentes.
+
+## Versão 1.7 — Carros, motos em manutenção e custo de óleo corrigido
+- O valor de troca de óleo passa a ser informado separadamente e deixa de usar automaticamente o total da nota de manutenção.
+- O ciclo de 990 km continua baseado nos hodômetros dos checklists diários e reinicia no KM da troca.
+- Nova visão de motos em manutenção, exibindo o motorista vinculado e permitindo ao ADM concluir o serviço.
+- Cadastro de veículos diferencia Moto e Carro sem alterar os registros antigos, que permanecem como motos.
+- Abastecimento de carro com foto da nota e seleção obrigatória do ADM autorizador.
+- Valores, históricos e comprovantes de carros ficam separados dos registros das motos.
+- Migrações leves, automáticas e idempotentes preservam os bancos SQLite e PostgreSQL/Supabase existentes.
+
+### Versão 1.7.1 — Identificação do carro
+- Foto da placa obrigatória em todo abastecimento de carro.
+- Foto da placa armazenada separadamente da nota do abastecimento.
+- Opções independentes para abrir e baixar a nota e a foto da placa no histórico.

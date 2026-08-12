@@ -1,4 +1,9 @@
-const same=document.getElementById('sameDay');const endWrap=document.getElementById('endDateWrap');function syncEnd(){if(!same||!endWrap)return;endWrap.style.display=same.checked?'none':'grid';const input=endWrap.querySelector('input');if(input)input.required=!same.checked}if(same){same.addEventListener('change',syncEnd);syncEnd()}const oil=document.getElementById('oilChange');const oilFields=document.getElementById('oilFields');function syncOil(){if(oil&&oilFields)oilFields.style.display=oil.checked?'grid':'none'}if(oil){oil.addEventListener('change',syncOil);syncOil()}
+const same=document.getElementById('sameDay');const endWrap=document.getElementById('endDateWrap');
+function syncEnd(){if(!same||!endWrap)return;endWrap.style.display=same.checked?'none':'grid';const input=endWrap.querySelector('input');if(input)input.required=!same.checked;const status=document.querySelector('select[name="status"]');if(status){status.disabled=same.checked;if(same.checked)status.value='COMPLETED'}}
+if(same){same.addEventListener('change',syncEnd);syncEnd()}
+const oil=document.getElementById('oilChange');const oilFields=document.getElementById('oilFields');const oilAmount=document.getElementById('oilAmount');
+function syncOil(){if(!oil||!oilFields)return;oilFields.style.display=oil.checked?'grid':'none';if(oilAmount)oilAmount.required=oil.checked}
+if(oil){oil.addEventListener('change',syncOil);syncOil()}
 
 
 async function prepareReceipt(input) {
@@ -44,15 +49,39 @@ function syncBorrowedVehicle(){
 }
 if(checklistVehicle){checklistVehicle.addEventListener('change',syncBorrowedVehicle);syncBorrowedVehicle();}
 
-const fuelVehicle=document.getElementById('fuelVehicle');
+const fuelType=document.getElementById('fuelType');
+const motorcycleVehicle=document.getElementById('motorcycleVehicle');
+const carVehicle=document.getElementById('carVehicle');
+const authorizedBy=document.getElementById('authorizedBy');
+const platePhoto=document.getElementById('platePhoto');
 const fuelOdometer=document.getElementById('fuelOdometer');
-function syncFuelVehicle(){
-  if(!fuelVehicle||!fuelOdometer)return;
-  const option=fuelVehicle.selectedOptions&&fuelVehicle.selectedOptions[0];
-  const currentKm=option?.dataset.currentKm;
-  fuelOdometer.placeholder=currentKm?`Ex.: ${currentKm}`:'Ex.: 15480';
+const fuelOdometerLabel=document.getElementById('fuelOdometerLabel');
+const fuelReceiptLabel=document.getElementById('fuelReceiptLabel');
+function syncFuelType(){
+  if(!fuelType)return;
+  const type=fuelType.value==='CAR'?'CAR':'MOTORCYCLE';
+  document.querySelectorAll('[data-fuel-section]').forEach(section=>{
+    const active=section.dataset.fuelSection===type;
+    section.hidden=!active;
+    section.querySelectorAll('input,select,textarea').forEach(field=>field.disabled=!active);
+  });
+  if(motorcycleVehicle)motorcycleVehicle.required=type==='MOTORCYCLE';
+  if(carVehicle)carVehicle.required=type==='CAR';
+  if(authorizedBy)authorizedBy.required=type==='CAR';
+  if(platePhoto)platePhoto.required=type==='CAR';
+  const selected=type==='CAR'?carVehicle?.selectedOptions?.[0]:motorcycleVehicle?.selectedOptions?.[0];
+  const fallback=document.getElementById('receiptForm')?.dataset.motorcycleKm;
+  const currentKm=selected?.dataset.currentKm||(type==='MOTORCYCLE'?fallback:'');
+  if(fuelOdometer)fuelOdometer.placeholder=currentKm?`Ex.: ${currentKm}`:'Ex.: 15480';
+  if(fuelOdometerLabel)fuelOdometerLabel.textContent=type==='CAR'?'KM atual do carro':'KM atual da moto';
+  if(fuelReceiptLabel)fuelReceiptLabel.textContent=type==='CAR'?'Foto da nota do carro':'Foto da nota da moto';
 }
-if(fuelVehicle){fuelVehicle.addEventListener('change',syncFuelVehicle);syncFuelVehicle();}
+if(fuelType){fuelType.addEventListener('change',syncFuelType);if(motorcycleVehicle)motorcycleVehicle.addEventListener('change',syncFuelType);if(carVehicle)carVehicle.addEventListener('change',syncFuelType);syncFuelType();}
+
+const maintenanceVehicle=document.getElementById('maintenanceVehicle');
+const maintenanceDriverInfo=document.getElementById('maintenanceDriverInfo');
+function syncMaintenanceDriver(){if(!maintenanceVehicle||!maintenanceDriverInfo)return;const option=maintenanceVehicle.selectedOptions?.[0];const span=maintenanceDriverInfo.querySelector('span');if(span)span.textContent=option?.value?(option.dataset.driver||'Sem motorista vinculado'):'Selecione uma moto.'}
+if(maintenanceVehicle){maintenanceVehicle.addEventListener('change',syncMaintenanceDriver);syncMaintenanceDriver();}
 const hasDamage=document.getElementById('hasDamage');
 const damageFields=document.getElementById('damageFields');
 const damageDescription=document.getElementById('damageDescription');
@@ -122,6 +151,19 @@ document.querySelectorAll('[data-delete-checklist]').forEach(btn=>btn.addEventLi
 
 // Edição de veículos.
 document.querySelectorAll('[data-edit-vehicle]').forEach(btn=>btn.addEventListener('click',()=>{const d=document.getElementById('vehicleDialog'+btn.dataset.editVehicle);if(d)d.showModal();}));
+
+// Cadastro de motos e carros. Motorista e status de manutenção pertencem apenas às motos.
+function syncVehicleType(select){
+  const form=select.closest('form');if(!form)return;
+  const motorcycle=select.value==='MOTORCYCLE';
+  form.querySelectorAll('[data-motorcycle-only]').forEach(field=>{
+    field.hidden=!motorcycle;
+    field.querySelectorAll('input,select,textarea').forEach(control=>control.disabled=!motorcycle);
+  });
+  const maintenanceOption=form.querySelector('[data-motorcycle-status]');
+  if(maintenanceOption){maintenanceOption.hidden=!motorcycle;maintenanceOption.disabled=!motorcycle;if(!motorcycle&&maintenanceOption.selected){const status=form.querySelector('select[name="status"]');if(status)status.value='AVAILABLE';}}
+}
+document.querySelectorAll('.vehicle-type-select').forEach(select=>{select.addEventListener('change',()=>syncVehicleType(select));syncVehicleType(select);});
 
 
 // Busca instantânea nas listas administrativas por motorista ou placa.

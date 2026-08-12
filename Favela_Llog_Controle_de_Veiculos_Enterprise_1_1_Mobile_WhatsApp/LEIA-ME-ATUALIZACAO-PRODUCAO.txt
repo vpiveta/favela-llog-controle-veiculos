@@ -43,6 +43,16 @@ RECURSOS CONSOLIDADOS:
 - Dashboard com gastos totais, abastecimento, manutencao, oleo e ranking por motorista.
 - Relacionamentos SQLAlchemy corrigidos para created_by e deleted_by.
 - Identidade visual azul-agua aplicada ao sistema.
+- Cadastro separado de motos e carros.
+- Abastecimento de carro com ADM autorizador obrigatorio.
+- Valores e comprovantes de carros separados dos registros das motos.
+- Painel de motos em manutencao com o motorista vinculado.
+- Valor da troca de oleo discriminado, sem assumir o total da nota.
+- Foto da placa obrigatoria no abastecimento de carro, separada da nota.
+
+ATUALIZACAO 1.7:
+Ao iniciar a nova versao, as colunas adicionais sao criadas automaticamente.
+Os dados existentes permanecem preservados e classificados como registros de moto.
 
 SEGURANCA:
 Nunca envie o arquivo .env ao GitHub. Ele ja esta ignorado pelo .gitignore.

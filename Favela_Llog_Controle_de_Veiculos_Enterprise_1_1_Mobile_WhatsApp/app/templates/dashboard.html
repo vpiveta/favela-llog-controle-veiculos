@@ -1,8 +1,77 @@
-{% extends 'base.html' %}{% block content %}
-<header class="page-head"><div><h2>Dashboard</h2><p>Olá, {{ current_user.name }}.</p></div><div class="actions"><a class="btn" href="{{url_for('main.checklist_new',type='RETIRADA')}}">✓ Retirada</a><a class="btn" href="{{url_for('main.checklist_new',type='DEVOLUCAO')}}">↩ Devolução</a><a class="btn alt" href="{{url_for('main.fuel_new')}}">+ Abastecimento</a><a class="btn alt" href="{{url_for('main.maintenance_new')}}">+ Manutenção</a></div></header>
-<section class="metrics metrics-7"><article><span>Total no mês</span><strong>R$ {{ '%.2f'|format(total)|replace('.',',') }}</strong></article><article><span>Abastecimentos</span><strong>R$ {{ '%.2f'|format(fuel)|replace('.',',') }}</strong></article><article><span>Manutenção</span><strong>R$ {{ '%.2f'|format(maint)|replace('.',',') }}</strong></article><article><span>Troca de óleo</span><strong>R$ {{ '%.2f'|format(oil)|replace('.',',') }}</strong></article><article><span>Checklist hoje</span><strong>{{today_checklist_count}}</strong></article><article><span>{{'Notificações' if current_user.is_admin else 'Alertas'}}</span><strong>{{pending_notifications if current_user.is_admin else alerts|length}}</strong></article></section>
-{% if current_user.is_admin %}<div class="grid2"><section class="panel"><h3>Tipos de gastos</h3><div class="expense-donut" style="--fuel:{{ (fuel/total*100) if total else 0 }}%;--maint:{{ (maint/total*100) if total else 0 }}%"><div><strong>R$ {{'%.2f'|format(total)|replace('.',',')}}</strong><span>Total</span></div></div><div class="chart-legend"><span><i class="legend-fuel"></i>Abastecimento · R$ {{'%.2f'|format(fuel)|replace('.',',')}}</span><span><i class="legend-maint"></i>Manutenção · R$ {{'%.2f'|format(maint)|replace('.',',')}}</span><span><i class="legend-oil"></i>Troca de óleo · R$ {{'%.2f'|format(oil)|replace('.',',')}}</span></div></section><section class="panel"><h3>Gastos por motorista</h3><div class="bar-chart">{% set maxv=(driver_costs[0][1] if driver_costs else 1) %}{% for name,value in driver_costs %}<div class="bar-row"><span>{{name}}</span><div class="bar-track"><i style="width:{{(value/maxv*100) if maxv else 0}}%"></i></div><b>R$ {{'%.2f'|format(value)|replace('.',',')}}</b></div>{% else %}<p class="muted">Sem gastos no período.</p>{% endfor %}</div></section></div>{% endif %}
-<div class="grid2"><section class="panel"><h3>Controle da troca de óleo · ciclo de 990 km</h3><div class="oil-status-grid">{% for s in oil_statuses %}<article class="oil-status-card {{s.level}}"><div class="section-head"><b>{{s.vehicle.plate}}</b><span class="status-badge {{s.level}}">{{s.status_label}}</span></div>{% if s.oil_change %}<p><span>KM da última troca</span><strong>{{s.base_km}} km</strong></p><p><span>KM atual do último checklist</span><strong>{{s.current_km}} km</strong></p><p><span>Rodados desde a troca</span><strong>{{s.traveled_km}} km</strong></p><p><span>{% if s.remaining_km >= 0 %}Faltam para trocar{% else %}Ultrapassou o limite{% endif %}</span><strong>{% if s.remaining_km >= 0 %}{{s.remaining_km}} km{% else %}{{-s.remaining_km}} km{% endif %}</strong></p>{% else %}<p class="muted">Registre a primeira troca de óleo para iniciar a contagem.</p>{% endif %}</article>{% else %}<p class="muted">Nenhuma moto cadastrada.</p>{% endfor %}</div><h4>Alertas ativos</h4>{% for a in alerts %}<div class="alert-row {{a.level}}"><b>{{a.title}}</b><span>{{a.vehicle.plate}} · {{a.detail}}</span>{% if a.message_sent %}<small>Mensagem enviada em {{a.sent_at|local_dt}}</small>{% endif %}</div>{% else %}<p class="muted">Nenhum alerta ativo.</p>{% endfor %}</section><section class="panel"><h3>{% if current_user.is_admin %}Frota{% else %}Minha moto{% endif %}</h3>{% for v in vehicles %}<div class="vehicle-card"><b>{{v.brand}} {{v.model}}</b><span>{{v.plate}} · {{v.current_km}} km · {{v.status}}</span>{% if v.driver and current_user.is_admin %}<small>{{v.driver.name}}</small>{% endif %}</div>{% else %}<p class="muted">Nenhuma moto vinculada.</p>{% endfor %}</section></div>
+{% extends 'base.html' %}
+{% block content %}
+<header class="page-head">
+  <div><h2>Dashboard</h2><p>Olá, {{ current_user.name }}.</p></div>
+  <div class="actions">
+    <a class="btn" href="{{url_for('main.checklist_new',type='RETIRADA')}}">✓ Retirada</a>
+    <a class="btn" href="{{url_for('main.checklist_new',type='DEVOLUCAO')}}">↩ Devolução</a>
+    <a class="btn alt" href="{{url_for('main.fuel_new',type='MOTORCYCLE')}}">+ Abastecer moto</a>
+    <a class="btn alt" href="{{url_for('main.fuel_new',type='CAR')}}">+ Abastecer carro</a>
+    <a class="btn alt" href="{{url_for('main.maintenance_new')}}">+ Manutenção</a>
+  </div>
+</header>
+
+<section class="metrics metrics-fleet">
+  <article><span>Total no mês</span><strong>R$ {{ '%.2f'|format(total)|replace('.',',') }}</strong></article>
+  <article><span>Total das motos</span><strong>R$ {{ '%.2f'|format(motorcycle_total)|replace('.',',') }}</strong></article>
+  <article><span>Total dos carros</span><strong>R$ {{ '%.2f'|format(car_total)|replace('.',',') }}</strong></article>
+  <article><span>Abastecimento · motos</span><strong>R$ {{ '%.2f'|format(motorcycle_fuel)|replace('.',',') }}</strong></article>
+  <article><span>Abastecimento · carros</span><strong>R$ {{ '%.2f'|format(car_fuel)|replace('.',',') }}</strong></article>
+  <article><span>Manutenção</span><strong>R$ {{ '%.2f'|format(maint)|replace('.',',') }}</strong></article>
+  <article><span>Troca de óleo</span><strong>R$ {{ '%.2f'|format(oil)|replace('.',',') }}</strong><small>Somente valor discriminado</small></article>
+  <article><span>Checklist hoje</span><strong>{{today_checklist_count}}</strong></article>
+  <article><span>{{'Notificações' if current_user.is_admin else 'Alertas'}}</span><strong>{{pending_notifications if current_user.is_admin else alerts|length}}</strong></article>
+</section>
+
+{% if current_user.is_admin %}
+<div class="grid2">
+  <section class="panel">
+    <h3>Tipos de gastos</h3>
+    <div class="expense-donut expense-donut-four" style="--moto-fuel:{{ (motorcycle_fuel/total*100) if total else 0 }}%;--car-fuel:{{ (car_fuel/total*100) if total else 0 }}%;--maint:{{ (maint/total*100) if total else 0 }}%;--oil:{{ (oil/total*100) if total else 0 }}%">
+      <div><strong>R$ {{'%.2f'|format(total)|replace('.',',')}}</strong><span>Total</span></div>
+    </div>
+    <div class="chart-legend">
+      <span><i class="legend-moto-fuel"></i>Motos · R$ {{'%.2f'|format(motorcycle_fuel)|replace('.',',')}}</span>
+      <span><i class="legend-car-fuel"></i>Carros · R$ {{'%.2f'|format(car_fuel)|replace('.',',')}}</span>
+      <span><i class="legend-maint"></i>Manutenção · R$ {{'%.2f'|format(maint)|replace('.',',')}}</span>
+      <span><i class="legend-oil"></i>Óleo · R$ {{'%.2f'|format(oil)|replace('.',',')}}</span>
+    </div>
+  </section>
+  <section class="panel"><h3>Gastos por responsável pelo lançamento</h3><div class="bar-chart">{% set maxv=(driver_costs[0][1] if driver_costs else 1) %}{% for name,value in driver_costs %}<div class="bar-row"><span>{{name}}</span><div class="bar-track"><i style="width:{{(value/maxv*100) if maxv else 0}}%"></i></div><b>R$ {{'%.2f'|format(value)|replace('.',',')}}</b></div>{% else %}<p class="muted">Sem gastos no período.</p>{% endfor %}</div></section>
+</div>
+{% endif %}
+
+<section class="panel maintenance-fleet-panel">
+  <div class="section-head"><div><h3>Motos em manutenção</h3><p class="muted">A moto continua identificada com o motorista ao qual está vinculada.</p></div><span class="count-pill">{{maintenance_vehicles|length}} em manutenção</span></div>
+  <div class="maintenance-grid">
+    {% for item in maintenance_vehicles %}
+    {% set v=item.vehicle %}{% set e=item.expense %}
+    <article class="maintenance-card">
+      <div class="section-head"><b>{{v.plate}}</b><span class="status-badge warning">Em manutenção</span></div>
+      <strong>{{v.brand}} {{v.model}}</strong>
+      <span>Motorista vinculado: <b>{{v.driver.name if v.driver else 'Sem motorista vinculado'}}</b></span>
+      {% if e and e.maintenance %}
+      <small>{{e.maintenance.description}}</small>
+      <small>Entrada: {{e.maintenance.start_date.strftime('%d/%m/%Y')}}{% if e.maintenance.end_date %} · Retirada prevista: {{e.maintenance.end_date.strftime('%d/%m/%Y')}}{% endif %}</small>
+      {% if current_user.is_admin %}<form method="post" action="{{url_for('main.complete_maintenance',expense_id=e.id)}}" class="complete-maintenance-form"><label>Data de conclusão<input type="date" name="end_date" value="{{today.strftime('%Y-%m-%d')}}" min="{{e.maintenance.start_date.strftime('%Y-%m-%d')}}" required></label><button class="btn compact">Concluir manutenção</button></form>{% endif %}
+      {% else %}<small>Status definido no cadastro do veículo.</small>{% endif %}
+    </article>
+    {% else %}<p class="muted">Nenhuma moto está em manutenção.</p>{% endfor %}
+  </div>
+</section>
+
+<div class="grid2">
+  <section class="panel"><h3>Controle da troca de óleo · ciclo de 990 km</h3><div class="oil-status-grid">{% for s in oil_statuses %}<article class="oil-status-card {{s.level}}"><div class="section-head"><b>{{s.vehicle.plate}}</b><span class="status-badge {{s.level}}">{{s.status_label}}</span></div>{% if s.oil_change %}<p><span>KM da última troca</span><strong>{{s.base_km}} km</strong></p><p><span>KM atual dos checklists</span><strong>{{s.current_km}} km</strong></p><p><span>Rodados desde a troca</span><strong>{{s.traveled_km}} km</strong></p><p><span>{% if s.remaining_km >= 0 %}Faltam para trocar{% else %}Ultrapassou o limite{% endif %}</span><strong>{% if s.remaining_km >= 0 %}{{s.remaining_km}} km{% else %}{{-s.remaining_km}} km{% endif %}</strong></p>{% else %}<p class="muted">Registre a primeira troca de óleo para iniciar a contagem.</p>{% endif %}</article>{% else %}<p class="muted">Nenhuma moto cadastrada.</p>{% endfor %}</div><h4>Alertas ativos</h4>{% for a in alerts %}<div class="alert-row {{a.level}}"><b>{{a.title}}</b><span>{{a.vehicle.plate}} · {{a.detail}}</span>{% if a.message_sent %}<small>Mensagem enviada em {{a.sent_at|local_dt}}</small>{% endif %}</div>{% else %}<p class="muted">Nenhum alerta ativo.</p>{% endfor %}</section>
+  <section class="panel">
+    <h3>{% if current_user.is_admin %}Frota{% else %}Minha moto{% endif %}</h3>
+    <h4>Motos</h4>
+    {% for v in motorcycles %}<div class="vehicle-card"><b>{{v.brand}} {{v.model}}</b><span>{{v.plate}} · {{v.current_km}} km · {{'Em manutenção' if v.status=='MAINTENANCE' else ('Bloqueada' if v.status=='BLOCKED' else 'Disponível')}}</span>{% if current_user.is_admin %}<small>Motorista: {{v.driver.name if v.driver else 'Sem motorista vinculado'}}</small>{% endif %}</div>{% else %}<p class="muted">Nenhuma moto vinculada.</p>{% endfor %}
+    {% if current_user.is_admin %}<h4>Carros</h4>{% for v in cars %}<div class="vehicle-card"><b>{{v.brand}} {{v.model}}</b><span>{{v.plate}} · {{v.current_km}} km · {{'Bloqueado' if v.status=='BLOCKED' else 'Disponível'}}</span></div>{% else %}<p class="muted">Nenhum carro cadastrado.</p>{% endfor %}{% endif %}
+  </section>
+</div>
+
 <section class="panel"><div class="section-head"><h3>Checklists recentes</h3><a href="{{url_for('main.admin_checklists') if current_user.is_admin else url_for('main.checklist_history')}}">Ver todos</a></div><div class="checklist-mini-grid">{% for c in recent_checklists %}<a class="checklist-mini" href="{{url_for('main.checklist_detail',checklist_id=c.id)}}"><b>{{c.vehicle.plate}} · {{'Devolução' if c.checklist_type=='DEVOLUCAO' else 'Retirada'}}</b><span>{% if current_user.is_admin %}{{c.driver.name}} · {% endif %}{{c.checklist_date.strftime('%d/%m/%Y')}} às {{c.created_at|local_dt('%H:%M')}}</span><small>{{'Moto de outro motorista' if c.borrowed_vehicle else 'Moto responsável'}}{% if c.has_damage %} · Avaria{% endif %}</small></a>{% else %}<p class="muted">Nenhum checklist registrado.</p>{% endfor %}</div></section>
-<section class="panel"><h3>Últimos lançamentos</h3><div class="table-wrap"><table><thead><tr><th>Data</th><th>Tipo</th><th>Veículo</th>{% if current_user.is_admin %}<th>Motorista</th>{% endif %}<th>Valor</th><th>Nota</th>{% if current_user.is_admin %}<th>Ações</th>{% endif %}</tr></thead><tbody>{% for e in expenses %}<tr><td>{{e.expense_date.strftime('%d/%m/%Y')}}</td><td>{{'Abastecimento' if e.expense_type=='FUEL' else ('Troca de óleo' if e.oil_changes else 'Manutenção')}}</td><td>{{e.vehicle.plate}}</td>{% if current_user.is_admin %}<td>{{e.created_by.name}}</td>{% endif %}<td>R$ {{'%.2f'|format(e.amount)|replace('.',',')}}</td><td><a href="{{url_for('main.expense_receipt',expense_id=e.id)}}" target="_blank">Abrir</a> · <a href="{{url_for('main.expense_receipt',expense_id=e.id,download=1)}}">Baixar</a></td>{% if current_user.is_admin %}<td><button class="btn danger compact" type="button" data-delete-expense="{{e.id}}">Excluir</button></td>{% endif %}</tr>{% else %}<tr><td colspan="7">Nenhum lançamento.</td></tr>{% endfor %}</tbody></table></div></section>
-{% include 'admin/delete_modal.html' %}{% endblock %}
+
+<section class="panel"><div class="section-head"><h3>Últimos lançamentos</h3><a href="{{url_for('main.history')}}">Ver gastos e comprovantes separados</a></div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Categoria</th><th>Veículo</th>{% if current_user.is_admin %}<th>Lançado por</th>{% endif %}<th>ADM autorizador</th><th>Valor</th><th>Arquivos</th>{% if current_user.is_admin %}<th>Ações</th>{% endif %}</tr></thead><tbody>{% for e in expenses %}<tr><td>{{e.expense_date.strftime('%d/%m/%Y')}}</td><td>{% if e.asset_type=='CAR' %}Abastecimento · carro{% elif e.expense_type=='FUEL' %}Abastecimento · moto{% elif e.maintenance and e.maintenance.is_oil_change %}Manutenção + óleo{% elif e.oil_changes %}Troca de óleo · valor legado não discriminado{% else %}Manutenção · moto{% endif %}</td><td>{{e.vehicle.plate}}</td>{% if current_user.is_admin %}<td>{{e.created_by.name}}</td>{% endif %}<td>{{e.authorized_by.name if e.authorized_by else '-'}}</td><td>R$ {{'%.2f'|format(e.amount)|replace('.',',')}}</td><td><span class="file-link-row">Nota: <a href="{{url_for('main.expense_receipt',expense_id=e.id)}}" target="_blank">Abrir</a> · <a href="{{url_for('main.expense_receipt',expense_id=e.id,download=1)}}">Baixar</a></span>{% if e.asset_type=='CAR' and e.id in car_plate_photo_ids %}<span class="file-link-row">Placa: <a href="{{url_for('main.expense_plate_photo',expense_id=e.id)}}" target="_blank">Abrir</a> · <a href="{{url_for('main.expense_plate_photo',expense_id=e.id,download=1)}}">Baixar</a></span>{% elif e.asset_type=='CAR' %}<span class="file-link-row muted">Placa: registro anterior</span>{% endif %}</td>{% if current_user.is_admin %}<td><button class="btn danger compact" type="button" data-delete-expense="{{e.id}}">Excluir</button></td>{% endif %}</tr>{% else %}<tr><td colspan="9">Nenhum lançamento.</td></tr>{% endfor %}</tbody></table></div></section>
+{% include 'admin/delete_modal.html' %}
+{% endblock %}

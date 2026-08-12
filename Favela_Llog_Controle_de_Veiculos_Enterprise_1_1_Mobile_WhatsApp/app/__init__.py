@@ -48,7 +48,17 @@ def create_app():
             inspector = inspect(db.engine)
             migrations = {
                 'alert_recipient': [('phone', 'VARCHAR(30)')],
-                'expense': [('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
+                'vehicle': [('vehicle_type', "VARCHAR(20) NOT NULL DEFAULT 'MOTORCYCLE'")],
+                'expense': [
+                    ('asset_type', "VARCHAR(20) NOT NULL DEFAULT 'MOTORCYCLE'"),
+                    ('authorized_by_id','INTEGER'),
+                    ('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'),
+                    ('deleted_by_id','INTEGER'),('deletion_reason','TEXT'),
+                ],
+                'maintenance_detail': [
+                    ('is_oil_change','BOOLEAN NOT NULL DEFAULT FALSE'),
+                    ('oil_amount','NUMERIC(12,2)'),
+                ],
                 'daily_checklist': [
                     ('odometer','INTEGER NOT NULL DEFAULT 0'),
                     ('checklist_type',"VARCHAR(20) NOT NULL DEFAULT 'RETIRADA'"),
@@ -71,6 +81,10 @@ def create_app():
                             # Registros anteriores à versão 1.6 são históricos e não
                             # podem ativar, por engano, uma moto emprestada antiga.
                             db.session.execute(text("UPDATE daily_checklist SET checklist_type = 'LEGACY'"))
+            # Normalização segura: itens anteriores eram motos e continuam como
+            # motos. Custos antigos de óleo não são inventados nem reclassificados.
+            db.session.execute(text("UPDATE vehicle SET vehicle_type = 'MOTORCYCLE' WHERE vehicle_type IS NULL OR vehicle_type = ''"))
+            db.session.execute(text("UPDATE expense SET asset_type = 'MOTORCYCLE' WHERE asset_type IS NULL OR asset_type = ''"))
             db.session.commit()
         except Exception:
             db.session.rollback()
