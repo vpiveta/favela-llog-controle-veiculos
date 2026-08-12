@@ -44,3 +44,13 @@ Configure `DATABASE_URL` com um PostgreSQL/Supabase e publique no Render.
 - Teste de conexao e criacao das tabelas do Supabase.
 - Publicacao GitHub/Render por BAT.
 - Python fixado em 3.12.7 para o Render.
+
+## Versão 1.6 — Tema azul-água e operação completa
+- Nova identidade visual azul-água em telas, fundo e marca.
+- Checklists separados de retirada e devolução.
+- Itens adicionais: carregador, suporte de celular, baú e alforje.
+- Abastecimento com KM atual obrigatório e somente gasolina.
+- Moto do abastecimento selecionada automaticamente pela retirada ativa do motorista.
+- Checklist de devolução encerra a moto temporária e restaura a moto própria no abastecimento.
+- Horários exibidos corretamente no fuso `America/Sao_Paulo`.
+- Migração automática e compatível com bancos existentes.

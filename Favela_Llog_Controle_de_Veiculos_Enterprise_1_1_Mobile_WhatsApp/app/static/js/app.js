@@ -34,13 +34,25 @@ const borrowReasonWrap=document.getElementById('borrowReasonWrap');
 const borrowReason=document.getElementById('borrowReason');
 function syncBorrowedVehicle(){
   if(!checklistVehicle||!borrowReasonWrap)return;
-  const borrowed=String(checklistVehicle.value)!==String(checklistVehicle.dataset.ownVehicle||'');
+  const selected=Boolean(checklistVehicle.value);
+  const borrowed=selected&&String(checklistVehicle.value)!==String(checklistVehicle.dataset.ownVehicle||'');
+  const checklistType=(document.getElementById('checklistForm')?.dataset.checklistType||'RETIRADA');
   borrowReasonWrap.hidden=!borrowed;
-  if(borrowReason)borrowReason.required=borrowed;
+  if(borrowReason)borrowReason.required=borrowed&&checklistType==='RETIRADA';
   const summary=document.getElementById('borrowSummary');
   if(summary){ summary.hidden=!borrowed; if(borrowed){ summary.innerHTML='<span>Carregando último checklist e abastecimento...</span>'; fetch('/vehicle/'+checklistVehicle.value+'/borrow-summary').then(r=>r.json()).then(d=>{ const c=d.last_checklist?`${d.last_checklist.date} · Estado ${d.last_checklist.condition}${d.last_checklist.damage?' · Com avaria':''}`:'Sem checklist anterior'; const f=d.last_fuel?`${d.last_fuel.date} · R$ ${String(d.last_fuel.amount).replace('.',',')}`:'Sem abastecimento anterior'; summary.innerHTML=`<b>${d.plate} · ${d.vehicle}</b><span>Último checklist: ${c}</span><span>Último abastecimento: ${f}</span><small>Somente estas informações da moto de terceiro estão disponíveis.</small>`; }).catch(()=>summary.innerHTML='<span>Não foi possível carregar o resumo.</span>'); } }
 }
 if(checklistVehicle){checklistVehicle.addEventListener('change',syncBorrowedVehicle);syncBorrowedVehicle();}
+
+const fuelVehicle=document.getElementById('fuelVehicle');
+const fuelOdometer=document.getElementById('fuelOdometer');
+function syncFuelVehicle(){
+  if(!fuelVehicle||!fuelOdometer)return;
+  const option=fuelVehicle.selectedOptions&&fuelVehicle.selectedOptions[0];
+  const currentKm=option?.dataset.currentKm;
+  fuelOdometer.placeholder=currentKm?`Ex.: ${currentKm}`:'Ex.: 15480';
+}
+if(fuelVehicle){fuelVehicle.addEventListener('change',syncFuelVehicle);syncFuelVehicle();}
 const hasDamage=document.getElementById('hasDamage');
 const damageFields=document.getElementById('damageFields');
 const damageDescription=document.getElementById('damageDescription');

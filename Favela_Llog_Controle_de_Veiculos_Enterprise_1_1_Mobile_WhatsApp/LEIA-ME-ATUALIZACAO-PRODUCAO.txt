@@ -3,30 +3,46 @@ FAVELA LLOG CONTROLE DE VEICULOS - PACOTE UNICO DE PRODUCAO
 NOME DA PASTA (mantido para o Render):
 Favela_Llog_Controle_de_Veiculos_Enterprise_1_1_Mobile_WhatsApp
 
-ANTES DE APAGAR AS PASTAS ANTIGAS:
-1. Na pasta "Controle das Motos", ative a exibicao de itens ocultos.
-2. NAO apague a pasta oculta .git. Ela mantem a ligacao com GitHub e Render.
-3. Apague somente as pastas/ZIPs antigos do sistema.
-4. Extraia este pacote diretamente dentro de "Controle das Motos".
+COMO PUBLICAR:
+1. Extraia todo o ZIP para uma pasta normal do Windows.
+2. Nao execute o BAT de dentro da visualizacao do ZIP.
+3. Abra PUBLICAR_GITHUB.bat dentro da pasta extraida.
+4. Se o navegador abrir, entre na conta do GitHub que possui acesso ao repositorio.
+5. Aguarde a mensagem PUBLICACAO CONCLUIDA COM SUCESSO.
+
+O publicador nao depende mais da pasta oculta .git. Ele baixa uma copia limpa do
+repositorio, envia somente os arquivos seguros do sistema e nao publica .env,
+banco local, comprovantes, ambiente virtual ou arquivos ZIP.
 
 VALIDACAO ANTES DE PUBLICAR:
 1. Abra TESTAR_HOMOLOGACAO.bat.
 2. Aguarde a mensagem HOMOLOGACAO APROVADA.
 3. Abra PUBLICAR_GITHUB.bat.
-4. Use a mensagem: Producao consolidada - seguranca dashboard checklist e alertas
+4. Aguarde as quatro etapas; a mensagem da atualizacao e criada automaticamente.
+
+SE APARECER ERRO:
+- "Git nao esta instalado": instale https://git-scm.com/download/win e mantenha
+  o Git Credential Manager selecionado durante a instalacao.
+- "Nao foi possivel acessar o repositorio": confira internet e acesso a conta.
+- "Envio ao GitHub nao foi autorizado": entre no GitHub pelo navegador, execute
+  o BAT novamente e conclua a autorizacao. Nunca envie senha ou token por chat.
 
 RECURSOS CONSOLIDADOS:
 - Perfis ADMIN e MOTORISTA com isolamento de dados.
 - Redefinicao de senha somente pelo ADMIN.
 - Exclusao logica de motorista, abastecimento, manutencao e checklist com auditoria.
-- Checklist diario com fotos, uso de moto emprestada e historico.
+- Checklists de retirada e devolucao com fotos, uso de moto emprestada e historico.
+- Checklist com carregador, suporte de celular, bau e alforje.
 - Ultimo checklist e ultimo abastecimento visiveis ao usar moto de terceiro.
+- Abastecimento somente com gasolina, KM atual e selecao automatica da moto em uso.
+- Horarios operacionais exibidos no fuso de Sao Paulo.
 - Comprovantes armazenados no banco e opcoes Abrir/Baixar.
 - Alertas visuais, som pelo navegador e botao Testar som.
 - WhatsApp assistido com status Mensagem enviada.
 - Troca de oleo a cada 990 km.
 - Dashboard com gastos totais, abastecimento, manutencao, oleo e ranking por motorista.
 - Relacionamentos SQLAlchemy corrigidos para created_by e deleted_by.
+- Identidade visual azul-agua aplicada ao sistema.
 
 SEGURANCA:
 Nunca envie o arquivo .env ao GitHub. Ele ja esta ignorado pelo .gitignore.

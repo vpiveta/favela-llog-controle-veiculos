@@ -40,3 +40,28 @@ body::before{
 .list-search{display:grid;gap:7px;margin:14px 0;color:var(--muted);font-size:13px}.list-search input{width:100%;min-height:46px;border:1px solid var(--border);border-radius:12px;background:#0e1115;color:#fff;padding:0 14px;font-size:15px}.list-search input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(244,176,0,.12)}[data-search-item][hidden]{display:none!important}.search-empty{padding:18px;text-align:center}.contact-list{display:grid;gap:9px;margin:12px 0 16px}.contact-list .list-row{display:flex;align-items:center;justify-content:space-between;gap:12px}.contact-list .list-row>div{display:grid;gap:4px}.contact-list .list-row span{color:var(--muted)}@media(max-width:600px){.contact-list .list-row{align-items:flex-start;flex-direction:column}}
 
 .oil-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:12px 0 20px}.oil-status-card{padding:14px;border:1px solid var(--border);border-radius:14px;background:#111418}.oil-status-card.warning{border-left:4px solid var(--warning)}.oil-status-card.danger{border-left:4px solid var(--danger)}.oil-status-card.success{border-left:4px solid var(--success)}.oil-status-card.neutral{border-left:4px solid #64748b}.oil-status-card p{display:flex;justify-content:space-between;gap:12px;margin:9px 0}.oil-status-card p span{color:var(--muted)}.status-badge.warning{background:#4c3a14;color:#ffd979}.status-badge.danger{background:#4a1f23;color:#ffb2b8}.status-badge.success{background:#163b2c;color:#82f0bc}.status-badge.neutral{background:#29313a;color:#d6dde6}
+
+/* Identidade azul-água e fluxos de retirada/devolução */
+:root{--gold:#38d6d0;--aqua:#38d6d0;--aqua-soft:#8ff3ee}
+body::before{background:radial-gradient(circle at 75% 10%,rgba(56,214,208,.16),transparent 32%)}
+.camera-field{border-color:var(--aqua)!important}
+.notice{background:rgba(56,214,208,.10);border-color:rgba(56,214,208,.38);color:#c8fffc}
+.notification-toast{border-color:rgba(56,214,208,.55)}
+.notification-toast b,.notification-toast a{color:var(--aqua)}
+.system-notification.unread{border-color:rgba(56,214,208,.50);background:rgba(56,214,208,.08)}
+.borrow-summary{border-color:rgba(56,214,208,.45);background:rgba(56,214,208,.08)}
+.count-pill{background:rgba(56,214,208,.13);border-color:rgba(56,214,208,.35)}
+.list-search input:focus{box-shadow:0 0 0 3px rgba(56,214,208,.14)}
+.readonly-input{cursor:not-allowed;color:var(--aqua-soft)!important;font-weight:800}
+.checklist-type-switch{display:flex;gap:8px}
+.operation-badge{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:900;white-space:nowrap}
+.operation-badge.pickup{background:rgba(56,214,208,.16);border:1px solid rgba(56,214,208,.42);color:var(--aqua-soft)}
+.operation-badge.return{background:rgba(96,165,250,.16);border:1px solid rgba(96,165,250,.42);color:#bfdbfe}
+.item-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:14px}
+.item-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 13px;border:1px solid var(--border);border-radius:12px;background:#101419}
+.item-status.ok{border-left:4px solid var(--aqua)}
+.item-status.ok b{color:var(--aqua-soft)}
+.item-status.attention{border-left:4px solid var(--warning)}
+.item-status.attention b{color:#ffd979}
+.content>.panel+.panel{margin-top:18px}
+@media(max-width:600px){.checklist-type-switch{width:100%}.checklist-type-switch .btn{flex:1}.item-status-grid{grid-template-columns:1fr}}

@@ -1,7 +1,7 @@
-from datetime import datetime
 from app import create_app
 from app.models import db, StoredFile
 from app.storage import is_configured, upload_bytes
+from app.time_utils import utc_now
 
 
 def main():
@@ -24,7 +24,7 @@ def main():
                 result = upload_bytes(path, bytes(item.content), item.mime_type, upsert=True)
                 item.storage_bucket = result.bucket
                 item.storage_path = result.path
-                item.storage_migrated_at = datetime.utcnow()
+                item.storage_migrated_at = utc_now()
                 # Só limpa o binário depois de confirmar o upload.
                 item.content = b''
                 db.session.commit()

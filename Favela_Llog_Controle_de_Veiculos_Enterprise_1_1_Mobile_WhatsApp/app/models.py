@@ -1,7 +1,7 @@
-from datetime import date, datetime
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from .time_utils import local_today, utc_now
 
 db = SQLAlchemy()
 
@@ -15,7 +15,7 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(20), nullable=False, default='DRIVER')
     active = db.Column(db.Boolean, default=True, nullable=False)
     must_change_password = db.Column(db.Boolean, default=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     vehicle = db.relationship('Vehicle', back_populates='driver', uselist=False)
 
     def set_password(self, password): self.password_hash = generate_password_hash(password)
@@ -40,12 +40,12 @@ class Vehicle(db.Model):
 class Expense(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     expense_type = db.Column(db.String(20), nullable=False)  # FUEL / MAINTENANCE
-    expense_date = db.Column(db.Date, nullable=False, default=date.today)
+    expense_date = db.Column(db.Date, nullable=False, default=local_today)
     amount = db.Column(db.Numeric(12, 2), nullable=False)
     odometer = db.Column(db.Integer)
     receipt_path = db.Column(db.String(255), nullable=False)
     notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False)
     created_by = db.relationship('User', foreign_keys=[created_by_id])
@@ -112,7 +112,7 @@ class StoredFile(db.Model):
     storage_bucket = db.Column(db.String(120))
     storage_path = db.Column(db.String(600), index=True)
     storage_migrated_at = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 
     @property
     def is_in_storage(self):
@@ -121,8 +121,9 @@ class StoredFile(db.Model):
 
 class DailyChecklist(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    checklist_date = db.Column(db.Date, nullable=False, default=date.today, index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    checklist_date = db.Column(db.Date, nullable=False, default=local_today, index=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    checklist_type = db.Column(db.String(20), default='RETIRADA', nullable=False, index=True)
     driver_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False, index=True)
     owner_driver_id = db.Column(db.Integer, db.ForeignKey('user.id'))
@@ -136,6 +137,10 @@ class DailyChecklist(db.Model):
     mirrors_ok = db.Column(db.Boolean, nullable=False)
     horn_ok = db.Column(db.Boolean, nullable=False)
     chain_ok = db.Column(db.Boolean, nullable=False)
+    charger_ok = db.Column(db.Boolean, default=True, nullable=False)
+    phone_holder_ok = db.Column(db.Boolean, default=True, nullable=False)
+    top_case_ok = db.Column(db.Boolean, default=True, nullable=False)
+    saddlebags_ok = db.Column(db.Boolean, default=True, nullable=False)
     general_condition = db.Column(db.String(30), nullable=False)
     has_damage = db.Column(db.Boolean, default=False, nullable=False)
     damage_description = db.Column(db.Text)
@@ -160,7 +165,7 @@ class AdminNotification(db.Model):
     message = db.Column(db.Text, nullable=False)
     checklist_id = db.Column(db.Integer, db.ForeignKey('daily_checklist.id'))
     is_read = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     checklist = db.relationship('DailyChecklist')
     whatsapp_sent_at = db.Column(db.DateTime)
     whatsapp_sent_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
@@ -175,7 +180,7 @@ class OilAlertStatus(db.Model):
     message_sent_at = db.Column(db.DateTime)
     message_sent_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     is_read = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     vehicle = db.relationship('Vehicle')
     oil_change = db.relationship('OilChange')
     message_sent_by = db.relationship('User')
@@ -188,5 +193,5 @@ class AuditLog(db.Model):
     entity_id = db.Column(db.Integer, nullable=False)
     description = db.Column(db.Text, nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     user = db.relationship('User')

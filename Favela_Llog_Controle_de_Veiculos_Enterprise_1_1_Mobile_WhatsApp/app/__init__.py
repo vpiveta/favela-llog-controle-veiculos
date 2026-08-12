@@ -4,6 +4,7 @@ from flask import Flask
 from flask_login import LoginManager
 from dotenv import load_dotenv
 from .models import db, User
+from .time_utils import format_local_datetime
 
 login_manager = LoginManager()
 login_manager.login_view = 'auth.login'
@@ -27,7 +28,9 @@ def create_app():
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         MAX_CONTENT_LENGTH=8 * 1024 * 1024,
         UPLOAD_FOLDER=str(root / 'uploads' / 'receipts'),
+        APP_TIMEZONE=os.getenv('APP_TIMEZONE', 'America/Sao_Paulo'),
     )
+    app.jinja_env.filters['local_dt'] = format_local_datetime
     (root / 'instance').mkdir(parents=True, exist_ok=True)
     Path(app.config['UPLOAD_FOLDER']).mkdir(parents=True, exist_ok=True)
     db.init_app(app)
@@ -46,7 +49,16 @@ def create_app():
             migrations = {
                 'alert_recipient': [('phone', 'VARCHAR(30)')],
                 'expense': [('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
-                'daily_checklist': [('odometer','INTEGER NOT NULL DEFAULT 0'),('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
+                'daily_checklist': [
+                    ('odometer','INTEGER NOT NULL DEFAULT 0'),
+                    ('checklist_type',"VARCHAR(20) NOT NULL DEFAULT 'RETIRADA'"),
+                    ('charger_ok','BOOLEAN NOT NULL DEFAULT TRUE'),
+                    ('phone_holder_ok','BOOLEAN NOT NULL DEFAULT TRUE'),
+                    ('top_case_ok','BOOLEAN NOT NULL DEFAULT TRUE'),
+                    ('saddlebags_ok','BOOLEAN NOT NULL DEFAULT TRUE'),
+                    ('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),
+                    ('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT'),
+                ],
                 'admin_notification': [('whatsapp_sent_at','TIMESTAMP'),('whatsapp_sent_by_id','INTEGER')],
                 'stored_file': [('storage_bucket','VARCHAR(120)'),('storage_path','VARCHAR(600)'),('storage_migrated_at','TIMESTAMP')],
             }
@@ -55,6 +67,10 @@ def create_app():
                 for field, sqltype in fields:
                     if field not in existing:
                         db.session.execute(text(f'ALTER TABLE {table} ADD COLUMN {field} {sqltype}'))
+                        if table == 'daily_checklist' and field == 'checklist_type':
+                            # Registros anteriores à versão 1.6 são históricos e não
+                            # podem ativar, por engano, uma moto emprestada antiga.
+                            db.session.execute(text("UPDATE daily_checklist SET checklist_type = 'LEGACY'"))
             db.session.commit()
         except Exception:
             db.session.rollback()

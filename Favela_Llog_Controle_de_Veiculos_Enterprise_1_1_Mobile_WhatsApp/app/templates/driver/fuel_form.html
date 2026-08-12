@@ -1,17 +1,28 @@
 {% extends 'base.html' %}
 {% block content %}
 <header class="page-head">
-  <div><h2>Novo abastecimento</h2><p>Informe o valor e fotografe a nota.</p></div>
+  <div><h2>Novo abastecimento</h2><p>Informe o KM atual, o valor e fotografe a nota.</p></div>
 </header>
 <form method="post" enctype="multipart/form-data" class="panel form-grid mobile-form" id="receiptForm">
   {% if current_user.is_admin %}
-  <label>Veículo<select name="vehicle_id" required><option value="">Selecione</option>{% for v in vehicles %}<option value="{{v.id}}">{{v.plate}} · {{v.driver.name if v.driver else 'Sem motorista vinculado'}}</option>{% endfor %}</select></label>
+  <label>Veículo
+    <select name="vehicle_id" id="fuelVehicle" required>
+      <option value="">Selecione</option>
+      {% for v in vehicles %}<option value="{{v.id}}" data-current-km="{{v.current_km or 0}}" {% if vehicle and vehicle.id==v.id %}selected{% endif %}>{{v.plate}} · {{v.driver.name if v.driver else 'Sem motorista vinculado'}}</option>{% endfor %}
+    </select>
+  </label>
   {% else %}
-  <div class="vehicle-summary wide"><small>Moto atual</small><strong>{{ vehicle.brand ~ ' ' ~ vehicle.model if vehicle else 'Sem moto vinculada' }}</strong><span>{{ vehicle.plate if vehicle else '' }}</span></div>
+  <div class="vehicle-summary wide">
+    <small>{{ 'Moto em uso · selecionada pelo checklist' if active_checklist else 'Moto atual' }}</small>
+    <strong>{{ vehicle.brand ~ ' ' ~ vehicle.model if vehicle else 'Sem moto vinculada' }}</strong>
+    <span>{{ vehicle.plate if vehicle else '' }}{% if active_checklist %} · retirada em {{active_checklist.checklist_date.strftime('%d/%m/%Y')}}{% endif %}</span>
+  </div>
+  {% if active_checklist and active_checklist.borrowed_vehicle %}<div class="notice wide"><b>Seleção automática:</b> este abastecimento será lançado na moto {{vehicle.plate}}, informada no seu último checklist de retirada.</div>{% endif %}
   {% endif %}
   <label>Data<input type="date" name="expense_date" value="{{today}}" required></label>
+  <label>KM atual da moto<input id="fuelOdometer" type="number" name="odometer" min="0" inputmode="numeric" placeholder="Ex.: {{vehicle.current_km if vehicle else 15480}}" required></label>
   <label>Valor (R$)<input name="amount" inputmode="decimal" placeholder="0,00" required></label>
-  <label>Combustível<select name="fuel_type"><option value="GASOLINE">Gasolina</option><option value="ETHANOL">Etanol</option></select></label>
+  <label>Combustível<input type="text" value="Gasolina" readonly class="readonly-input"><input type="hidden" name="fuel_type" value="GASOLINE"></label>
   <label>Litros <small class="optional">opcional</small><input name="liters" inputmode="decimal" placeholder="0,00"></label>
   <label>Posto <small class="optional">opcional</small><input name="station" autocomplete="organization"></label>
   <label class="wide camera-field">

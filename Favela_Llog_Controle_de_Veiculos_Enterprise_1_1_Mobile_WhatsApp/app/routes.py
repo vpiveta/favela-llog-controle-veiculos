@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from functools import wraps
 from pathlib import Path
@@ -10,6 +10,7 @@ from flask_login import current_user, login_required, login_user, logout_user
 from werkzeug.utils import secure_filename
 from .models import db, User, Vehicle, Expense, FuelDetail, MaintenanceDetail, OilChange, AlertRecipient, StoredFile, DailyChecklist, AdminNotification, OilAlertStatus, AuditLog
 from .storage import is_configured as storage_is_configured, upload_bytes, download_bytes, SupabaseStorageError
+from .time_utils import local_today, utc_now
 
 auth_bp = Blueprint('auth', __name__)
 main_bp = Blueprint('main', __name__)
@@ -54,7 +55,7 @@ def store_uploaded_file(file, category, entity_type, entity_id, images_only=Fals
         file_size=len(data), category=category, entity_type=entity_type, entity_id=entity_id,
         uploaded_by_id=current_user.id, content=db_content,
         storage_bucket=storage_bucket, storage_path=storage_path,
-        storage_migrated_at=datetime.utcnow() if storage_path else None,
+        storage_migrated_at=utc_now() if storage_path else None,
     )
     db.session.add(stored)
     return token
@@ -62,10 +63,26 @@ def store_uploaded_file(file, category, entity_type, entity_id, images_only=Fals
 def save_receipt(file, expense_id):
     return store_uploaded_file(file, 'RECEIPT', 'EXPENSE', expense_id, images_only=False)
 
-def selected_vehicle():
+def active_checklist_for_driver(user):
+    """Última retirada ainda não encerrada por um checklist de devolução."""
+    latest = DailyChecklist.query.filter_by(
+        driver_id=user.id, is_deleted=False
+    ).order_by(
+        DailyChecklist.created_at.desc(), DailyChecklist.id.desc()
+    ).first()
+    if not latest or latest.checklist_type != 'RETIRADA':
+        return None
+    return latest
+
+
+def selected_vehicle(prefer_active_checklist=False):
     if current_user.is_admin:
         vehicle_id = request.form.get('vehicle_id', type=int) or request.args.get('vehicle_id', type=int)
         return db.session.get(Vehicle, vehicle_id) if vehicle_id else None
+    if prefer_active_checklist:
+        active_checklist = active_checklist_for_driver(current_user)
+        if active_checklist:
+            return active_checklist.vehicle
     return current_user.vehicle
 
 def add_admin_notification(notification_type, title, message, checklist_id=None):
@@ -95,7 +112,8 @@ def logout():
 @main_bp.route('/')
 @login_required
 def dashboard():
-    month_start = date.today().replace(day=1)
+    today = local_today()
+    month_start = today.replace(day=1)
     q = Expense.query.filter(Expense.expense_date >= month_start, Expense.is_deleted.is_(False))
     if not current_user.is_admin:
         q = q.filter(Expense.created_by_id == current_user.id)
@@ -109,7 +127,7 @@ def dashboard():
     oil_statuses = build_oil_statuses(vehicle_scope)
     alerts = build_oil_alerts(vehicle_scope)
     vehicles = Vehicle.query.order_by(Vehicle.plate).all() if current_user.is_admin else ([current_user.vehicle] if current_user.vehicle else [])
-    today_checklists = DailyChecklist.query.filter_by(checklist_date=date.today(), is_deleted=False)
+    today_checklists = DailyChecklist.query.filter_by(checklist_date=today, is_deleted=False)
     if not current_user.is_admin:
         today_checklists = today_checklists.filter_by(driver_id=current_user.id)
     today_checklist_count = today_checklists.count()
@@ -132,20 +150,41 @@ def dashboard():
 @login_required
 def fuel_new():
     vehicles = Vehicle.query.order_by(Vehicle.plate).all() if current_user.is_admin else []
-    vehicle = selected_vehicle()
+    active_checklist = None if current_user.is_admin else active_checklist_for_driver(current_user)
+    vehicle = selected_vehicle(prefer_active_checklist=True)
     if request.method == 'POST':
-        vehicle = selected_vehicle()
+        active_checklist = None if current_user.is_admin else active_checklist_for_driver(current_user)
+        vehicle = selected_vehicle(prefer_active_checklist=True)
         if not vehicle: flash('Nenhuma moto vinculada.', 'danger'); return redirect(request.url)
         try:
-            exp = Expense(expense_type='FUEL', expense_date=datetime.strptime(request.form['expense_date'],'%Y-%m-%d').date(), amount=Decimal(request.form['amount'].replace(',','.')), odometer=None, receipt_path='pending', notes=None, created_by_id=current_user.id, vehicle_id=vehicle.id)
-            exp.fuel = FuelDetail(liters=Decimal(request.form.get('liters','0').replace(',','.')) if request.form.get('liters') else None, fuel_type=request.form.get('fuel_type'), station=request.form.get('station'))
+            odometer = request.form.get('odometer', type=int)
+            if odometer is None or odometer < 0:
+                raise ValueError('Informe a quilometragem atual da moto.')
+            exp = Expense(
+                expense_type='FUEL',
+                expense_date=datetime.strptime(request.form['expense_date'],'%Y-%m-%d').date(),
+                amount=Decimal(request.form['amount'].replace(',','.')),
+                odometer=odometer,
+                receipt_path='pending', notes=None,
+                created_by_id=current_user.id, vehicle_id=vehicle.id,
+            )
+            exp.fuel = FuelDetail(
+                liters=Decimal(request.form.get('liters','0').replace(',','.')) if request.form.get('liters') else None,
+                fuel_type='GASOLINE',
+                station=request.form.get('station'),
+            )
+            if odometer > (vehicle.current_km or 0):
+                vehicle.current_km = odometer
             db.session.add(exp); db.session.flush()
             exp.receipt_path = save_receipt(request.files.get('receipt'), exp.id)
-            add_admin_notification('FUEL', 'Novo abastecimento', f'{current_user.name} registrou abastecimento da moto {vehicle.plate} no valor de R$ {exp.amount}.')
+            add_admin_notification('FUEL', 'Novo abastecimento', f'{current_user.name} registrou abastecimento da moto {vehicle.plate}, com {odometer} km, no valor de R$ {exp.amount}.')
             db.session.commit(); flash('Abastecimento registrado.', 'success'); return redirect(url_for('main.history'))
         except Exception as exc:
             db.session.rollback(); flash(str(exc), 'danger')
-    return render_template('driver/fuel_form.html', vehicles=vehicles, vehicle=vehicle, today=date.today().isoformat())
+    return render_template(
+        'driver/fuel_form.html', vehicles=vehicles, vehicle=vehicle,
+        active_checklist=active_checklist, today=local_today().isoformat(),
+    )
 
 @main_bp.route('/maintenance/new', methods=['GET','POST'])
 @login_required
@@ -174,7 +213,7 @@ def maintenance_new():
             db.session.commit(); flash('Manutenção registrada.', 'success'); return redirect(url_for('main.history'))
         except Exception as exc:
             db.session.rollback(); flash(str(exc), 'danger')
-    return render_template('driver/maintenance_form.html', vehicles=vehicles, vehicle=vehicle, today=date.today().isoformat())
+    return render_template('driver/maintenance_form.html', vehicles=vehicles, vehicle=vehicle, today=local_today().isoformat())
 
 @main_bp.route('/history')
 @login_required
@@ -237,34 +276,55 @@ def stored_file(token):
 def checklist_new():
     own_vehicle = current_user.vehicle
     all_vehicles = Vehicle.query.order_by(Vehicle.plate).all()
+    requested_type = (request.form.get('checklist_type') if request.method == 'POST' else request.args.get('type')) or 'RETIRADA'
+    checklist_type = requested_type.upper()
+    if checklist_type not in {'RETIRADA', 'DEVOLUCAO'}:
+        checklist_type = 'RETIRADA'
+    active_before = active_checklist_for_driver(current_user)
+    default_vehicle = active_before.vehicle if checklist_type == 'DEVOLUCAO' and active_before else own_vehicle
     if request.method == 'POST':
         try:
             vehicle_id = request.form.get('vehicle_id', type=int)
             vehicle = db.session.get(Vehicle, vehicle_id)
             if not vehicle:
                 raise ValueError('Selecione a moto utilizada.')
+            if checklist_type == 'DEVOLUCAO' and active_before and vehicle.id != active_before.vehicle_id:
+                raise ValueError(f'A devolução ativa deve ser feita para a moto {active_before.vehicle.plate}.')
             borrowed = not own_vehicle or vehicle.id != own_vehicle.id
             odometer = request.form.get('odometer', type=int)
             if odometer is None or odometer < 0:
                 raise ValueError('Informe a quilometragem atual da moto.')
             reason = request.form.get('borrow_reason','').strip()
-            if borrowed and not reason:
+            if borrowed and checklist_type == 'RETIRADA' and not reason:
                 raise ValueError('Informe o motivo do uso da moto de outro motorista.')
-            existing = DailyChecklist.query.filter_by(driver_id=current_user.id, vehicle_id=vehicle.id, checklist_date=date.today()).first()
+            if borrowed and checklist_type == 'DEVOLUCAO' and not reason and active_before and active_before.vehicle_id == vehicle.id:
+                reason = active_before.borrow_reason or ''
+            existing = DailyChecklist.query.filter_by(
+                driver_id=current_user.id, vehicle_id=vehicle.id,
+                checklist_date=local_today(), checklist_type=checklist_type,
+                is_deleted=False,
+            ).first()
             if existing:
-                flash('O checklist desta moto já foi realizado hoje.', 'warning')
+                label = 'retirada' if checklist_type == 'RETIRADA' else 'devolução'
+                flash(f'O checklist de {label} desta moto já foi realizado hoje.', 'warning')
                 return redirect(url_for('main.checklist_detail', checklist_id=existing.id))
             has_damage = request.form.get('has_damage') == 'yes'
             damage_description = request.form.get('damage_description','').strip()
             if has_damage and not damage_description:
                 raise ValueError('Descreva a avaria encontrada.')
             checklist = DailyChecklist(
-                checklist_date=date.today(), driver_id=current_user.id, vehicle_id=vehicle.id, odometer=odometer,
+                checklist_date=local_today(), checklist_type=checklist_type,
+                driver_id=current_user.id, vehicle_id=vehicle.id, odometer=odometer,
                 owner_driver_id=vehicle.driver_id, borrowed_vehicle=borrowed, borrow_reason=reason or None,
                 tires_ok=request.form.get('tires_ok') == 'ok', brakes_ok=request.form.get('brakes_ok') == 'ok',
                 lights_ok=request.form.get('lights_ok') == 'ok', indicators_ok=request.form.get('indicators_ok') == 'ok',
                 mirrors_ok=request.form.get('mirrors_ok') == 'ok', horn_ok=request.form.get('horn_ok') == 'ok',
-                chain_ok=request.form.get('chain_ok') == 'ok', general_condition=request.form.get('general_condition','GOOD'),
+                chain_ok=request.form.get('chain_ok') == 'ok',
+                charger_ok=request.form.get('charger_ok') == 'ok',
+                phone_holder_ok=request.form.get('phone_holder_ok') == 'ok',
+                top_case_ok=request.form.get('top_case_ok') == 'ok',
+                saddlebags_ok=request.form.get('saddlebags_ok') == 'ok',
+                general_condition=request.form.get('general_condition','GOOD'),
                 has_damage=has_damage, damage_description=damage_description or None,
                 status='PENDING_WHATSAPP' if borrowed else ('DAMAGE_REPORTED' if has_damage else 'COMPLETED'),
                 share_token=secrets.token_urlsafe(24)
@@ -277,17 +337,28 @@ def checklist_new():
                 store_uploaded_file(request.files.get(field), category, 'CHECKLIST', checklist.id, images_only=True)
             if has_damage:
                 store_uploaded_file(request.files.get('damage_photo'), 'CHECKLIST_DAMAGE', 'CHECKLIST', checklist.id, images_only=True)
-            add_admin_notification('CHECKLIST', 'Novo checklist diário', f'{current_user.name} enviou o checklist da moto {vehicle.plate}.', checklist.id)
+            action_label = 'retirada' if checklist_type == 'RETIRADA' else 'devolução'
+            add_admin_notification('CHECKLIST', f'Novo checklist de {action_label}', f'{current_user.name} enviou o checklist de {action_label} da moto {vehicle.plate}.', checklist.id)
             if borrowed:
-                add_admin_notification('BORROWED_VEHICLE', 'Moto utilizada por outro motorista', f'{current_user.name} está utilizando a moto {vehicle.plate}. Motivo: {reason}', checklist.id)
+                if checklist_type == 'RETIRADA':
+                    borrowed_message = f'{current_user.name} está utilizando a moto {vehicle.plate}. Motivo: {reason}'
+                    borrowed_title = 'Moto utilizada por outro motorista'
+                else:
+                    borrowed_message = f'{current_user.name} devolveu a moto {vehicle.plate} após o uso temporário.'
+                    borrowed_title = 'Moto de outro motorista devolvida'
+                add_admin_notification('BORROWED_VEHICLE', borrowed_title, borrowed_message, checklist.id)
             if has_damage:
                 add_admin_notification('DAMAGE', 'Avaria informada no checklist', f'{current_user.name} informou avaria na moto {vehicle.plate}: {damage_description}', checklist.id)
             db.session.commit()
-            flash('Checklist salvo com sucesso.', 'success')
+            flash(f'Checklist de {action_label} salvo com sucesso.', 'success')
             return redirect(url_for('main.checklist_detail', checklist_id=checklist.id))
         except Exception as exc:
             db.session.rollback(); flash(str(exc), 'danger')
-    return render_template('driver/checklist_form.html', own_vehicle=own_vehicle, vehicles=all_vehicles, today=date.today())
+    return render_template(
+        'driver/checklist_form.html', own_vehicle=own_vehicle, vehicles=all_vehicles,
+        today=local_today(), checklist_type=checklist_type,
+        default_vehicle=default_vehicle, active_checklist=active_before,
+    )
 
 @main_bp.route('/checklists')
 @login_required
@@ -309,7 +380,8 @@ def checklist_detail(checklist_id):
     base_url = os.getenv('ONLINE_URL') or request.url_root.rstrip('/')
     share_url = f"{base_url}{url_for('main.checklist_share', token=checklist.share_token)}"
     logo_url = f"{base_url}{url_for('static', filename='img/logo.png')}"
-    message = quote(f"{logo_url}\n\n🟡⚫ *FAVELA LLOG*\n*Controle de Veículos*\n\n*Uso temporário de moto*\nMotorista: {checklist.driver.name}\nMoto: {checklist.vehicle.brand} {checklist.vehicle.model}\nPlaca: {checklist.vehicle.plate}\nResponsável original: {checklist.owner_driver.name if checklist.owner_driver else 'Sem vínculo'}\nMotivo: {checklist.borrow_reason or '-'}\nData: {checklist.checklist_date.strftime('%d/%m/%Y')}\nKM do checklist: {checklist.odometer}\n\nChecklist e imagens: {share_url}")
+    action_label = 'Devolução' if checklist.checklist_type == 'DEVOLUCAO' else 'Retirada'
+    message = quote(f"{logo_url}\n\n🔵⚫ *FAVELA LLOG*\n*Controle de Veículos*\n\n*Checklist de {action_label.lower()}*\nMotorista: {checklist.driver.name}\nMoto: {checklist.vehicle.brand} {checklist.vehicle.model}\nPlaca: {checklist.vehicle.plate}\nResponsável original: {checklist.owner_driver.name if checklist.owner_driver else 'Sem vínculo'}\nMotivo: {checklist.borrow_reason or '-'}\nData: {checklist.checklist_date.strftime('%d/%m/%Y')}\nKM do checklist: {checklist.odometer}\n\nChecklist e imagens: {share_url}")
     whatsapp_links=[]
     for recipient in recipients:
         phone=normalize_whatsapp_phone(recipient.phone)
@@ -322,7 +394,7 @@ def checklist_confirm_whatsapp(checklist_id):
     checklist = db.session.get(DailyChecklist, checklist_id) or abort(404)
     if not current_user.is_admin and checklist.driver_id != current_user.id:
         return ('',403)
-    checklist.whatsapp_sent_at = datetime.utcnow()
+    checklist.whatsapp_sent_at = utc_now()
     checklist.whatsapp_confirmed_by_id = current_user.id
     checklist.status = 'DAMAGE_REPORTED' if checklist.has_damage else 'COMPLETED'
     db.session.commit(); flash('Envio pelo WhatsApp confirmado e registrado no histórico.', 'success')
@@ -407,7 +479,7 @@ def delete_user(user_id):
         # Exclusão segura: bloqueia o acesso e preserva o histórico operacional.
         user.active = False
         user.must_change_password = False
-        user.username = f'{user.username}__excluido_{user.id}_{int(datetime.utcnow().timestamp())}'[:80]
+        user.username = f'{user.username}__excluido_{user.id}_{int(utc_now().timestamp())}'[:80]
         if '(Excluído)' not in user.name:
             user.name = f'{user.name} (Excluído)'
         add_admin_notification('DRIVER_DELETED', 'Motorista excluído', f'O administrador excluiu/desativou o cadastro de {user.name}. O histórico foi preservado.')
@@ -426,7 +498,7 @@ def delete_expense(expense_id):
     if request.form.get('confirmation') != 'EXCLUIR' or not reason:
         flash('Informe o motivo e digite EXCLUIR para confirmar.', 'danger')
         return redirect(request.referrer or url_for('main.history'))
-    exp.is_deleted=True; exp.deleted_at=datetime.utcnow(); exp.deleted_by_id=current_user.id; exp.deletion_reason=reason
+    exp.is_deleted=True; exp.deleted_at=utc_now(); exp.deleted_by_id=current_user.id; exp.deletion_reason=reason
     db.session.add(AuditLog(action='DELETE_EXPENSE', entity_type='EXPENSE', entity_id=exp.id,
         description=f'Lançamento {exp.expense_type} excluído logicamente. Motivo: {reason}', user_id=current_user.id))
     db.session.commit(); flash('Lançamento removido dos painéis. Auditoria preservada.', 'success')
@@ -441,7 +513,7 @@ def delete_checklist(checklist_id):
     if request.form.get('confirmation')!='EXCLUIR' or not reason:
         flash('Informe o motivo e digite EXCLUIR para confirmar.', 'danger')
         return redirect(request.referrer or url_for('main.admin_checklists'))
-    checklist.is_deleted=True; checklist.deleted_at=datetime.utcnow(); checklist.deleted_by_id=current_user.id; checklist.deletion_reason=reason
+    checklist.is_deleted=True; checklist.deleted_at=utc_now(); checklist.deleted_by_id=current_user.id; checklist.deletion_reason=reason
     db.session.add(AuditLog(action='DELETE_CHECKLIST', entity_type='CHECKLIST', entity_id=checklist.id,
         description=f'Checklist excluído logicamente. Motivo: {reason}', user_id=current_user.id))
     db.session.commit(); flash('Checklist removido do histórico operacional. Auditoria preservada.', 'success')
@@ -483,7 +555,7 @@ def notifications_status():
 @admin_required
 def notification_whatsapp_sent(notification_id):
     notification=db.session.get(AdminNotification,notification_id) or abort(404)
-    notification.whatsapp_sent_at=datetime.utcnow(); notification.whatsapp_sent_by_id=current_user.id; notification.is_read=True
+    notification.whatsapp_sent_at=utc_now(); notification.whatsapp_sent_by_id=current_user.id; notification.is_read=True
     db.session.commit(); flash('Mensagem marcada como enviada e alerta retirado dos não lidos.', 'success')
     return redirect(url_for('main.alerts'))
 
@@ -496,7 +568,7 @@ def oil_alert_sent():
     if not status:
         status=OilAlertStatus(vehicle_id=vehicle_id,oil_change_id=oil_change_id,level=level)
         db.session.add(status)
-    status.message_sent_at=datetime.utcnow(); status.message_sent_by_id=current_user.id; status.is_read=True
+    status.message_sent_at=utc_now(); status.message_sent_by_id=current_user.id; status.is_read=True
     db.session.commit(); flash('Mensagem enviada. O alerta saiu dos não lidos e ficou no histórico.', 'success')
     return redirect(url_for('main.alerts'))
 
@@ -569,7 +641,7 @@ def whatsapp_message(alert):
     logo_url = f"{base_url}{url_for('static', filename='img/logo.png')}"
     return (
         f"{logo_url}\n\n"
-        "🟡⚫ *FAVELA LLOG*\n"
+        "🔵⚫ *FAVELA LLOG*\n"
         "*Controle de Veículos*\n\n"
         f"🚨 *{alert['title']}*\n"
         f"Moto: {vehicle.brand} {vehicle.model}\n"
@@ -686,4 +758,3 @@ def build_oil_alerts(vehicle_id=None):
             'sent_at': status.message_sent_at if status else None,
         })
     return result
-
