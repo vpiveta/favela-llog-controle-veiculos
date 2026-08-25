@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from flask import Flask
+from flask import Flask, g, has_request_context
 from flask_login import LoginManager
 from dotenv import load_dotenv
 from .models import db, User
@@ -11,7 +11,13 @@ login_manager.login_view = 'auth.login'
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    if has_request_context():
+        g._enterprise18_loading_user = True
+    try:
+        return db.session.get(User, int(user_id))
+    finally:
+        if has_request_context():
+            g._enterprise18_loading_user = False
 
 def create_app():
     load_dotenv()
@@ -67,8 +73,6 @@ def create_app():
                         db.session.execute(text(f'ALTER TABLE {table} ADD COLUMN {field} {sqltype}'))
                         if table == 'daily_checklist' and field == 'checklist_type':
                             db.session.execute(text("UPDATE daily_checklist SET checklist_type = 'LEGACY'"))
-            # Toda a operação existente permanece na SDA9. O perfil ADMIN antigo
-            # continua sendo o Admin Geral para manter 100% de compatibilidade.
             for table in ('user','vehicle','expense','oil_change','daily_checklist','admin_notification','stored_file','oil_alert_status','audit_log'):
                 try:
                     db.session.execute(text(f"UPDATE {table} SET base_code = 'SDA9' WHERE base_code IS NULL OR base_code = ''"))
