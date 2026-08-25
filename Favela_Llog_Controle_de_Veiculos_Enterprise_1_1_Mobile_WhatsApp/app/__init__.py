@@ -66,21 +66,23 @@ def create_app():
                 'oil_alert_status': [('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'")],
                 'audit_log': [('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'")],
             }
+            preparer = db.engine.dialect.identifier_preparer
             for table, fields in migrations.items():
                 existing = {c['name'] for c in inspector.get_columns(table)}
+                table_sql = preparer.quote(table)
                 for field, sqltype in fields:
                     if field not in existing:
-                        db.session.execute(text(f'ALTER TABLE {table} ADD COLUMN {field} {sqltype}'))
+                        field_sql = preparer.quote(field)
+                        db.session.execute(text(f'ALTER TABLE {table_sql} ADD COLUMN {field_sql} {sqltype}'))
                         if table == 'daily_checklist' and field == 'checklist_type':
-                            db.session.execute(text("UPDATE daily_checklist SET checklist_type = 'LEGACY'"))
+                            db.session.execute(text('UPDATE daily_checklist SET checklist_type = \'LEGACY\''))
             for table in ('user','vehicle','expense','oil_change','daily_checklist','admin_notification','stored_file','oil_alert_status','audit_log'):
-                try:
-                    db.session.execute(text(f"UPDATE {table} SET base_code = 'SDA9' WHERE base_code IS NULL OR base_code = ''"))
-                except Exception:
-                    pass
+                table_sql = preparer.quote(table)
+                db.session.execute(text(f"UPDATE {table_sql} SET base_code = 'SDA9' WHERE base_code IS NULL OR base_code = ''"))
             db.session.execute(text("UPDATE vehicle SET vehicle_type = 'MOTORCYCLE' WHERE vehicle_type IS NULL OR vehicle_type = ''"))
             db.session.execute(text("UPDATE expense SET asset_type = 'MOTORCYCLE' WHERE asset_type IS NULL OR asset_type = ''"))
             db.session.commit()
         except Exception:
             db.session.rollback()
+            app.logger.exception('Falha ao aplicar migracoes leves do banco')
     return app
