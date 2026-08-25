@@ -28,4 +28,4 @@ jobs:
         env:
           SECRET_KEY: enterprise18-ci
           DATABASE_URL: sqlite:////tmp/favela_llog_enterprise18.db
-        run: python scripts/testar_enterprise_18.py
+        run: python -m scripts.testar_enterprise_18
