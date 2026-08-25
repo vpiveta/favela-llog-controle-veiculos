@@ -3,7 +3,7 @@ from urllib.parse import quote
 from flask import request, url_for
 from flask_login import current_user
 
-from .models import db, User, Vehicle, DailyChecklist
+from .models import db, Vehicle, DailyChecklist
 from .time_utils import local_today
 
 
@@ -68,17 +68,12 @@ def _extra_context():
             borrowed_owner_alert = {
                 'title': f'Sua moto foi utilizada por {borrowed.driver.name}',
                 'text': f'{borrowed.driver.name} {action} a moto {borrowed.vehicle.plate} hoje. KM registrado: {borrowed.odometer}.',
-                'url': url_for('main.checklist_detail', checklist_id=borrowed.id),
+                'url': url_for('main.checklist_share', token=borrowed.share_token),
             }
-    return {
-        'fuel_motorcycles': fuel_motorcycles,
-        'borrowed_owner_alert': borrowed_owner_alert,
-    }
+    return {'fuel_motorcycles': fuel_motorcycles, 'borrowed_owner_alert': borrowed_owner_alert}
 
 
 def init_adjustments(app):
-    # As rotas antigas consultam estas funções em tempo de execução; a substituição
-    # mantém compatibilidade sem duplicar endpoints já publicados.
     from . import routes
     routes.selected_vehicle = _selected_vehicle_any_same_base
     routes.attach_whatsapp_links = _owner_only_whatsapp_links
