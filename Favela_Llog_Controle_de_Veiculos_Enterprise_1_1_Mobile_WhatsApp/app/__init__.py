@@ -46,6 +46,8 @@ def create_app():
     app.register_blueprint(main_bp)
     from .enterprise18 import init_enterprise18
     init_enterprise18(app)
+    from .enterprise18_adjustments import init_adjustments
+    init_adjustments(app)
     from .cli import register_cli
     register_cli(app)
     with app.app_context():
