@@ -16,15 +16,7 @@ services:
         generateValue: true
       - key: APP_TIMEZONE
         value: America/Sao_Paulo
-      - key: DATABASE_URL
-        sync: false
       - key: ONLINE_URL
-        sync: false
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: SUPABASE_STORAGE_BUCKET
         sync: false
       - key: WHATSAPP_TOKEN
         sync: false
