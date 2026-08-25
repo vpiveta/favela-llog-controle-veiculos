@@ -1,50 +1,11 @@
 {% extends 'base.html' %}
 {% block content %}
-<header class="page-head"><div><h2>Veículos</h2><p>Cadastre motos e carros; o vínculo com motorista é exclusivo das motos.</p></div></header>
+<header class="page-head"><div><h2>Frota</h2><p>Cadastre motos e carros por base. Cada unidade visualiza somente seus próprios veículos.</p></div></header>
 <div class="vehicle-admin-layout">
-  <form method="post" class="panel form-grid vehicle-create-form">
-    <h3 class="wide">Novo veículo</h3>
-    <label>Tipo
-      <select name="vehicle_type" class="vehicle-type-select" required>
-        <option value="MOTORCYCLE">Moto</option>
-        <option value="CAR">Carro</option>
-      </select>
-    </label>
-    <label>Placa<input name="plate" required></label>
-    <label>Marca<input name="brand" required></label>
-    <label>Modelo<input name="model" required></label>
-    <label>Ano<input type="number" name="year"></label>
-    <label>Quilometragem<input type="number" name="current_km" value="0" min="0"></label>
-    <label>Status<select name="status"><option value="AVAILABLE">Disponível</option><option value="MAINTENANCE" data-motorcycle-status>Em manutenção</option><option value="BLOCKED">Bloqueado</option></select></label>
-    <label data-motorcycle-only>Motorista vinculado<select name="driver_id"><option value="">Sem vínculo</option>{% for d in drivers %}<option value="{{d.id}}">{{d.name}}</option>{% endfor %}</select></label>
-    <button class="wide">Cadastrar veículo</button>
-  </form>
-  <section class="panel fleet-panel">
-    <div class="section-head"><div><h3>Frota cadastrada</h3><p class="muted">Motos e carros ficam identificados e contabilizados separadamente.</p></div><div class="fleet-counts"><span class="count-pill">{{vehicles|selectattr('vehicle_type','equalto','MOTORCYCLE')|list|length}} motos</span><span class="count-pill car-pill">{{vehicles|selectattr('vehicle_type','equalto','CAR')|list|length}} carros</span></div></div>
-    <label class="list-search">Buscar motorista, placa ou tipo<input type="search" placeholder="Ex.: João, ABC1D23 ou carro" data-list-search="vehiclesList"></label>
-    <div class="vehicle-list" id="vehiclesList">
-    {% for v in vehicles %}
-      <article class="vehicle-card vehicle-card-row" data-search-item="{{(v.plate ~ ' ' ~ v.brand ~ ' ' ~ v.model ~ ' ' ~ ('moto' if v.vehicle_type=='MOTORCYCLE' else 'carro') ~ ' ' ~ (v.driver.name if v.driver else ''))|lower}}">
-        <div><b>{{v.plate}} · {{v.driver.name if v.vehicle_type=='MOTORCYCLE' and v.driver else ('Sem motorista vinculado' if v.vehicle_type=='MOTORCYCLE' else 'Veículo da frota')}}</b><span>{{v.brand}} {{v.model}}{% if v.year %} · {{v.year}}{% endif %}</span><small>{{'Moto' if v.vehicle_type=='MOTORCYCLE' else 'Carro'}} · {{v.current_km}} km · {{'Em manutenção' if v.status=='MAINTENANCE' else ('Bloqueado' if v.status=='BLOCKED' else 'Disponível')}}</small></div>
-        <div class="vehicle-card-actions"><span class="operation-badge {{'pickup' if v.vehicle_type=='MOTORCYCLE' else 'car'}}">{{'Moto' if v.vehicle_type=='MOTORCYCLE' else 'Carro'}}</span><button type="button" class="btn alt compact" data-edit-vehicle="{{v.id}}">Editar veículo</button></div>
-      </article>
-      <dialog id="vehicleDialog{{v.id}}" class="enterprise-dialog">
-        <form method="post" action="{{url_for('main.edit_vehicle',vehicle_id=v.id)}}" class="form-grid">
-          <h3 class="wide">Editar {{v.plate}}</h3>
-          <label>Tipo<select name="vehicle_type" class="vehicle-type-select"><option value="MOTORCYCLE" {% if v.vehicle_type=='MOTORCYCLE' %}selected{% endif %}>Moto</option><option value="CAR" {% if v.vehicle_type=='CAR' %}selected{% endif %}>Carro</option></select></label>
-          <label>Placa<input name="plate" value="{{v.plate}}" required></label>
-          <label>Marca<input name="brand" value="{{v.brand}}" required></label>
-          <label>Modelo<input name="model" value="{{v.model}}" required></label>
-          <label>Ano<input type="number" name="year" value="{{v.year or ''}}"></label>
-          <label>Quilometragem<input type="number" name="current_km" min="0" value="{{v.current_km or 0}}"></label>
-          <label>Status<select name="status"><option value="AVAILABLE" {% if v.status=='AVAILABLE' %}selected{% endif %}>Disponível</option><option value="MAINTENANCE" data-motorcycle-status {% if v.status=='MAINTENANCE' %}selected{% endif %}>Em manutenção</option><option value="BLOCKED" {% if v.status=='BLOCKED' %}selected{% endif %}>Bloqueado</option></select></label>
-          <label class="wide" data-motorcycle-only>Motorista vinculado<select name="driver_id"><option value="">Sem vínculo</option>{% for d in drivers %}<option value="{{d.id}}" {% if v.driver_id==d.id %}selected{% endif %}>{{d.name}}</option>{% endfor %}</select></label>
-          <div class="wide dialog-actions"><button type="button" class="btn alt" data-close-dialog>Cancelar</button><button>Salvar alterações</button></div>
-        </form>
-      </dialog>
-    {% else %}<p class="muted">Nenhum veículo cadastrado.</p>{% endfor %}
-    </div>
-    <p class="muted search-empty" data-search-empty="vehiclesList" hidden>Nenhum veículo encontrado.</p>
-  </section>
-</div>
+<form method="post" class="panel form-grid vehicle-create-form"><h3 class="wide">Novo veículo</h3>
+{% if current_user.is_global_admin %}<label>Base<select name="base_code" required><option value="SDA9">SDA9</option><option value="SLI9">SLI9</option><option value="SDI9">SDI9</option></select></label>{% else %}<input type="hidden" name="base_code" value="{{current_user.base_code}}"><label>Base<input value="{{current_user.base_code}}" disabled></label>{% endif %}
+<label>Tipo<select name="vehicle_type" class="vehicle-type-select" required><option value="MOTORCYCLE">Moto</option><option value="CAR">Carro</option></select></label><label>Placa<input name="plate" required></label><label>Marca<input name="brand" required></label><label>Modelo<input name="model" required></label><label>Ano<input type="number" name="year"></label><label>Quilometragem<input type="number" name="current_km" value="0" min="0"></label><label>Status<select name="status"><option value="AVAILABLE">Disponível</option><option value="MAINTENANCE" data-motorcycle-status>Em manutenção</option><option value="BLOCKED">Bloqueado</option></select></label><label data-motorcycle-only>Motorista vinculado<select name="driver_id"><option value="">Sem vínculo</option>{% for d in drivers %}<option value="{{d.id}}" data-base="{{d.base_code}}">{{d.name}} · {{d.base_code}}</option>{% endfor %}</select></label><button class="wide">Cadastrar veículo</button></form>
+<section class="panel fleet-panel"><div class="section-head"><div><h3>Frota cadastrada</h3><p class="muted">Identificação por base, tipo, motorista e situação.</p></div><div class="fleet-counts"><span class="count-pill">{{vehicles|selectattr('vehicle_type','equalto','MOTORCYCLE')|list|length}} motos</span><span class="count-pill car-pill">{{vehicles|selectattr('vehicle_type','equalto','CAR')|list|length}} carros</span></div></div><label class="list-search">Buscar motorista, placa, base ou tipo<input type="search" placeholder="Ex.: SDA9, João ou ABC1D23" data-list-search="vehiclesList"></label><div class="vehicle-list" id="vehiclesList">
+{% for v in vehicles %}<article class="vehicle-card vehicle-card-row" data-search-item="{{(v.plate ~ ' ' ~ v.base_code ~ ' ' ~ v.brand ~ ' ' ~ v.model ~ ' ' ~ ('moto' if v.vehicle_type=='MOTORCYCLE' else 'carro') ~ ' ' ~ (v.driver.name if v.driver else ''))|lower}}"><div><b>{{v.plate}} · {{v.driver.name if v.vehicle_type=='MOTORCYCLE' and v.driver else ('Sem motorista vinculado' if v.vehicle_type=='MOTORCYCLE' else 'Veículo da frota')}}</b><span>{{v.brand}} {{v.model}}{% if v.year %} · {{v.year}}{% endif %}</span><small>{{v.base_code}} · {{'Moto' if v.vehicle_type=='MOTORCYCLE' else 'Carro'}} · {{v.current_km}} km · {{'Em manutenção' if v.status=='MAINTENANCE' else ('Bloqueado' if v.status=='BLOCKED' else 'Disponível')}}</small></div><div class="vehicle-card-actions"><span class="e18-base-pill">{{v.base_code}}</span><span class="operation-badge {{'pickup' if v.vehicle_type=='MOTORCYCLE' else 'car'}}">{{'Moto' if v.vehicle_type=='MOTORCYCLE' else 'Carro'}}</span><button type="button" class="btn alt compact" data-edit-vehicle="{{v.id}}">Editar</button></div></article>
+<dialog id="vehicleDialog{{v.id}}" class="enterprise-dialog"><form method="post" action="{{url_for('main.edit_vehicle',vehicle_id=v.id)}}" class="form-grid"><h3 class="wide">Editar {{v.plate}}</h3>{% if current_user.is_global_admin %}<label>Base<select name="base_code">{% for base in ['SDA9','SLI9','SDI9'] %}<option value="{{base}}" {% if v.base_code==base %}selected{% endif %}>{{base}}</option>{% endfor %}</select></label>{% else %}<input type="hidden" name="base_code" value="{{v.base_code}}"><label>Base<input value="{{v.base_code}}" disabled></label>{% endif %}<label>Tipo<select name="vehicle_type" class="vehicle-type-select"><option value="MOTORCYCLE" {% if v.vehicle_type=='MOTORCYCLE' %}selected{% endif %}>Moto</option><option value="CAR" {% if v.vehicle_type=='CAR' %}selected{% endif %}>Carro</option></select></label><label>Placa<input name="plate" value="{{v.plate}}" required></label><label>Marca<input name="brand" value="{{v.brand}}" required></label><label>Modelo<input name="model" value="{{v.model}}" required></label><label>Ano<input type="number" name="year" value="{{v.year or ''}}"></label><label>Quilometragem<input type="number" name="current_km" min="0" value="{{v.current_km or 0}}"></label><label>Status<select name="status"><option value="AVAILABLE" {% if v.status=='AVAILABLE' %}selected{% endif %}>Disponível</option><option value="MAINTENANCE" data-motorcycle-status {% if v.status=='MAINTENANCE' %}selected{% endif %}>Em manutenção</option><option value="BLOCKED" {% if v.status=='BLOCKED' %}selected{% endif %}>Bloqueado</option></select></label><label class="wide" data-motorcycle-only>Motorista vinculado<select name="driver_id"><option value="">Sem vínculo</option>{% for d in drivers %}<option value="{{d.id}}" data-base="{{d.base_code}}" {% if v.driver_id==d.id %}selected{% endif %}>{{d.name}} · {{d.base_code}}</option>{% endfor %}</select></label><div class="wide dialog-actions"><button type="button" class="btn alt" data-close-dialog>Cancelar</button><button>Salvar alterações</button></div></form></dialog>{% else %}<p class="muted">Nenhum veículo cadastrado.</p>{% endfor %}</div><p class="muted search-empty" data-search-empty="vehiclesList" hidden>Nenhum veículo encontrado.</p></section></div>
 {% endblock %}
