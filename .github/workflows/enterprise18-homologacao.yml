@@ -1,0 +1,28 @@
+name: Enterprise 1.8 Homologacao
+
+on:
+  push:
+    branches:
+      - enterprise-1-8-multibase-profissional
+  workflow_dispatch:
+
+jobs:
+  homologar:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Favela_Llog_Controle_de_Veiculos_Enterprise_1_1_Mobile_WhatsApp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+      - name: Validar sintaxe
+        run: python -m compileall -q app scripts run.py wsgi.py
+      - name: Testar Enterprise 1.8
+        env:
+          SECRET_KEY: enterprise18-ci
+          DATABASE_URL: sqlite:////tmp/favela_llog_enterprise18.db
+        run: python scripts/testar_enterprise_18.py
