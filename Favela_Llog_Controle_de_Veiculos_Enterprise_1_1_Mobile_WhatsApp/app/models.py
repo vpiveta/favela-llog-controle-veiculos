@@ -13,6 +13,7 @@ class User(UserMixin, db.Model):
     phone = db.Column(db.String(30))
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='DRIVER')
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
     active = db.Column(db.Boolean, default=True, nullable=False)
     must_change_password = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now)
@@ -21,7 +22,11 @@ class User(UserMixin, db.Model):
     def set_password(self, password): self.password_hash = generate_password_hash(password)
     def check_password(self, password): return check_password_hash(self.password_hash, password)
     @property
-    def is_admin(self): return self.role == 'ADMIN'
+    def is_admin(self): return self.role in ('ADMIN', 'ADMIN_GLOBAL', 'ADMIN_BASE')
+    @property
+    def is_global_admin(self): return self.role in ('ADMIN', 'ADMIN_GLOBAL')
+    @property
+    def is_base_admin(self): return self.role == 'ADMIN_BASE'
 
 class Vehicle(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -31,6 +36,7 @@ class Vehicle(db.Model):
     year = db.Column(db.Integer)
     current_km = db.Column(db.Integer, default=0)
     vehicle_type = db.Column(db.String(20), default='MOTORCYCLE', nullable=False, index=True)
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
     status = db.Column(db.String(30), default='AVAILABLE')
     photo = db.Column(db.String(255))
     driver_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True)
@@ -40,12 +46,11 @@ class Vehicle(db.Model):
 
 class Expense(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    expense_type = db.Column(db.String(20), nullable=False)  # FUEL / MAINTENANCE
+    expense_type = db.Column(db.String(20), nullable=False)
     expense_date = db.Column(db.Date, nullable=False, default=local_today)
     amount = db.Column(db.Numeric(12, 2), nullable=False)
-    # Snapshot do tipo do veículo no momento do lançamento. Assim, relatórios e
-    # comprovantes continuam separados mesmo que o cadastro seja editado depois.
     asset_type = db.Column(db.String(20), default='MOTORCYCLE', nullable=False, index=True)
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
     odometer = db.Column(db.Integer)
     receipt_path = db.Column(db.String(255), nullable=False)
     notes = db.Column(db.Text)
@@ -82,8 +87,7 @@ class MaintenanceDetail(db.Model):
     workshop = db.Column(db.String(160))
     status = db.Column(db.String(30), default='COMPLETED')
     is_oil_change = db.Column(db.Boolean, default=False, nullable=False)
-    # Valor exato da parcela referente ao óleo. Não inferir pelo total da nota.
-    oil_amount = db.Column(db.Numeric(12, 2))
+    oil_amount = db.Column(db.Numeric(12,2))
     expense_id = db.Column(db.Integer, db.ForeignKey('expense.id'), unique=True, nullable=False)
     expense = db.relationship('Expense', back_populates='maintenance')
 
@@ -94,6 +98,7 @@ class OilChange(db.Model):
     next_change_km = db.Column(db.Integer, nullable=False)
     next_change_date = db.Column(db.Date)
     oil_type = db.Column(db.String(100))
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False)
     expense_id = db.Column(db.Integer, db.ForeignKey('expense.id'))
     vehicle = db.relationship('Vehicle', back_populates='oil_changes')
@@ -105,7 +110,6 @@ class AlertRecipient(db.Model):
     phone = db.Column(db.String(30))
     active = db.Column(db.Boolean, default=True)
 
-
 class StoredFile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     token = db.Column(db.String(64), unique=True, nullable=False, index=True)
@@ -115,8 +119,8 @@ class StoredFile(db.Model):
     category = db.Column(db.String(40), nullable=False)
     entity_type = db.Column(db.String(40), nullable=False)
     entity_id = db.Column(db.Integer, nullable=False, index=True)
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
     uploaded_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    # Arquivos antigos podem continuar no PostgreSQL. Novos arquivos usam Supabase Storage.
     content = db.Column(db.LargeBinary, nullable=False, default=b'')
     storage_bucket = db.Column(db.String(120))
     storage_path = db.Column(db.String(600), index=True)
@@ -133,6 +137,7 @@ class DailyChecklist(db.Model):
     checklist_date = db.Column(db.Date, nullable=False, default=local_today, index=True)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     checklist_type = db.Column(db.String(20), default='RETIRADA', nullable=False, index=True)
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
     driver_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False, index=True)
     owner_driver_id = db.Column(db.Integer, db.ForeignKey('user.id'))
@@ -172,6 +177,7 @@ class AdminNotification(db.Model):
     notification_type = db.Column(db.String(40), nullable=False)
     title = db.Column(db.String(180), nullable=False)
     message = db.Column(db.Text, nullable=False)
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
     checklist_id = db.Column(db.Integer, db.ForeignKey('daily_checklist.id'))
     is_read = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
@@ -180,12 +186,12 @@ class AdminNotification(db.Model):
     whatsapp_sent_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     whatsapp_sent_by = db.relationship('User', foreign_keys=[whatsapp_sent_by_id])
 
-
 class OilAlertStatus(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False, index=True)
     oil_change_id = db.Column(db.Integer, db.ForeignKey('oil_change.id'), nullable=False, index=True)
     level = db.Column(db.String(20), nullable=False)
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
     message_sent_at = db.Column(db.DateTime)
     message_sent_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     is_read = db.Column(db.Boolean, default=False, nullable=False)
@@ -201,6 +207,7 @@ class AuditLog(db.Model):
     entity_type = db.Column(db.String(40), nullable=False)
     entity_id = db.Column(db.Integer, nullable=False)
     description = db.Column(db.Text, nullable=False)
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     user = db.relationship('User')

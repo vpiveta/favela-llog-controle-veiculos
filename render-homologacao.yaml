@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: favela-llog-veiculos-homologacao
+    runtime: python
+    plan: free
+    repo: https://github.com/vpiveta/favela-llog-controle-veiculos
+    branch: enterprise-1-8-multibase-profissional
+    rootDir: Favela_Llog_Controle_de_Veiculos_Enterprise_1_1_Mobile_WhatsApp
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: SECRET_KEY
+        generateValue: true
+      - key: APP_TIMEZONE
+        value: America/Sao_Paulo
+      - key: ONLINE_URL
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
