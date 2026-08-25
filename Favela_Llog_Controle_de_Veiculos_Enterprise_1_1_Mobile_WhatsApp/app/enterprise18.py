@@ -67,21 +67,37 @@ def _scoped_execute(execute_state):
     execute_state.statement = statement
 
 
+def _object_base(obj, fallback):
+    if isinstance(obj, Vehicle):
+        driver = getattr(obj, 'driver', None)
+        return normalize_base(getattr(driver, 'base_code', None) or fallback)
+    if isinstance(obj, Expense):
+        vehicle = getattr(obj, 'vehicle', None)
+        creator = getattr(obj, 'created_by', None)
+        return normalize_base(getattr(vehicle, 'base_code', None) or getattr(creator, 'base_code', None) or fallback)
+    if isinstance(obj, DailyChecklist):
+        vehicle = getattr(obj, 'vehicle', None)
+        driver = getattr(obj, 'driver', None)
+        return normalize_base(getattr(vehicle, 'base_code', None) or getattr(driver, 'base_code', None) or fallback)
+    if isinstance(obj, OilChange):
+        vehicle = getattr(obj, 'vehicle', None)
+        return normalize_base(getattr(vehicle, 'base_code', None) or fallback)
+    if isinstance(obj, StoredFile):
+        uploader = getattr(obj, 'uploaded_by', None)
+        return normalize_base(getattr(uploader, 'base_code', None) or fallback)
+    return normalize_base(fallback)
+
+
 def _assign_base(session, flush_context, instances):
     try:
         if not getattr(current_user, 'is_authenticated', False):
             return
-        base = requested_write_base()
+        requested = requested_write_base()
     except RuntimeError:
         return
     for obj in session.new:
         if hasattr(obj, 'base_code'):
-            if is_global_admin() and request.form.get('base_code'):
-                obj.base_code = base
-            elif not getattr(obj, 'base_code', None):
-                obj.base_code = base
-            elif not is_global_admin():
-                obj.base_code = base
+            obj.base_code = _object_base(obj, requested if is_global_admin() else current_base())
 
 
 def install_multibase_events():
@@ -178,7 +194,7 @@ def edit_user(user_id):
         user.active = request.form.get('active') == 'on'
         if is_global_admin():
             role = request.form.get('role', user.role)
-            if role not in ('DRIVER', 'ADMIN_BASE', 'ADMIN_GLOBAL'):
+            if role not in ('DRIVER', 'ADMIN_BASE', 'ADMIN', 'ADMIN_GLOBAL'):
                 raise ValueError('Perfil inválido.')
             user.role = role
             user.base_code = normalize_base(request.form.get('base_code') or user.base_code)
