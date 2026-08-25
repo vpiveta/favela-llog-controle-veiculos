@@ -5,7 +5,7 @@ from datetime import datetime
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for, Response
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for, Response, session as flask_session, g
 from flask_login import current_user, login_required
 from sqlalchemy import event, func, case
 from sqlalchemy.orm import with_loader_criteria, Session
@@ -49,17 +49,21 @@ def requested_write_base():
     return current_base() or 'SDA9'
 
 
+def _session_scope():
+    role = flask_session.get('e18_role')
+    base = flask_session.get('e18_base')
+    return role, normalize_base(base) if base else None
+
+
 def _scoped_execute(execute_state):
     if not execute_state.is_select:
         return
-    try:
-        authenticated = getattr(current_user, 'is_authenticated', False)
-    except RuntimeError:
+    if getattr(g, '_enterprise18_loading_user', False):
         return
-    if not authenticated or is_global_admin():
+    if not flask_session.get('_user_id'):
         return
-    base = current_base()
-    if not base:
+    role, base = _session_scope()
+    if not role or role in ('ADMIN', 'ADMIN_GLOBAL') or not base:
         return
     statement = execute_state.statement
     for model in SCOPED_MODELS:
@@ -89,15 +93,13 @@ def _object_base(obj, fallback):
 
 
 def _assign_base(session, flush_context, instances):
-    try:
-        if not getattr(current_user, 'is_authenticated', False):
-            return
-        requested = requested_write_base()
-    except RuntimeError:
+    if not flask_session.get('_user_id'):
         return
+    role, session_base = _session_scope()
+    requested = normalize_base(request.form.get('base_code') or request.args.get('base_code') or session_base or 'SDA9') if role in ('ADMIN','ADMIN_GLOBAL') else (session_base or 'SDA9')
     for obj in session.new:
         if hasattr(obj, 'base_code'):
-            obj.base_code = _object_base(obj, requested if is_global_admin() else current_base())
+            obj.base_code = _object_base(obj, requested)
 
 
 def install_multibase_events():
@@ -136,9 +138,9 @@ def _driver_action_status(user):
     retiradas = [r for r in today_rows if r.checklist_type == 'RETIRADA']
     devolucoes = [r for r in today_rows if r.checklist_type == 'DEVOLUCAO']
     if not retiradas:
-        return {'level': 'danger', 'title': 'Checklist de retirada pendente', 'text': 'Faça o checklist antes de iniciar a operação.', 'url': url_for('main.checklist_new', checklist_type='RETIRADA')}
+        return {'level': 'danger', 'title': 'Checklist de retirada pendente', 'text': 'Faça o checklist antes de iniciar a operação.', 'url': url_for('main.checklist_new', type='RETIRADA')}
     if len(devolucoes) < len(retiradas):
-        return {'level': 'warning', 'title': 'Checklist de devolução pendente', 'text': 'Ao finalizar o uso da moto, registre a devolução.', 'url': url_for('main.checklist_new', checklist_type='DEVOLUCAO')}
+        return {'level': 'warning', 'title': 'Checklist de devolução pendente', 'text': 'Ao finalizar o uso da moto, registre a devolução.', 'url': url_for('main.checklist_new', type='DEVOLUCAO')}
     return {'level': 'success', 'title': 'Checklists do dia concluídos', 'text': 'Retirada e devolução registradas.', 'url': url_for('main.checklist_history')}
 
 
@@ -301,5 +303,15 @@ def send_driver_whatsapp(checklist_id):
 
 def init_enterprise18(app):
     install_multibase_events()
+
+    @app.before_request
+    def _sync_enterprise18_session():
+        if getattr(current_user, 'is_authenticated', False):
+            flask_session['e18_role'] = current_user.role
+            flask_session['e18_base'] = current_user.base_code
+        else:
+            flask_session.pop('e18_role', None)
+            flask_session.pop('e18_base', None)
+
     app.register_blueprint(enterprise18_bp)
     app.context_processor(enterprise18_context)
