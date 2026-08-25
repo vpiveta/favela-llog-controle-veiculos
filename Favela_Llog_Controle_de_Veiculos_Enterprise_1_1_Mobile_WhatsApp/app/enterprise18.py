@@ -7,15 +7,19 @@ from urllib.request import Request, urlopen
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for, Response
 from flask_login import current_user, login_required
-from sqlalchemy import event, func
-from sqlalchemy.orm import with_loader_criteria
+from sqlalchemy import event, func, case
+from sqlalchemy.orm import with_loader_criteria, Session
 
-from .models import db, User, Vehicle, Expense, DailyChecklist, AdminNotification, OilChange, AuditLog
+from .models import (
+    db, User, Vehicle, Expense, DailyChecklist, AdminNotification,
+    OilChange, OilAlertStatus, StoredFile, AuditLog
+)
 from .time_utils import local_today, utc_now
 
 enterprise18_bp = Blueprint('enterprise18', __name__)
 BASES = ('SDA9', 'SLI9', 'SDI9')
-SCOPED_MODELS = (User, Vehicle, Expense, DailyChecklist, AdminNotification)
+SCOPED_MODELS = (User, Vehicle, Expense, DailyChecklist, AdminNotification, OilChange, OilAlertStatus, StoredFile, AuditLog)
+_EVENTS_INSTALLED = False
 
 
 def normalize_base(value):
@@ -46,15 +50,20 @@ def requested_write_base():
 
 
 def _scoped_execute(execute_state):
-    if not execute_state.is_select or not getattr(current_user, 'is_authenticated', False) or is_global_admin():
+    if not execute_state.is_select:
+        return
+    try:
+        authenticated = getattr(current_user, 'is_authenticated', False)
+    except RuntimeError:
+        return
+    if not authenticated or is_global_admin():
         return
     base = current_base()
     if not base:
         return
     statement = execute_state.statement
     for model in SCOPED_MODELS:
-        if hasattr(model, 'base_code'):
-            statement = statement.options(with_loader_criteria(model, lambda cls, b=base: cls.base_code == b, include_aliases=True))
+        statement = statement.options(with_loader_criteria(model, lambda cls, b=base: cls.base_code == b, include_aliases=True))
     execute_state.statement = statement
 
 
@@ -66,17 +75,22 @@ def _assign_base(session, flush_context, instances):
     except RuntimeError:
         return
     for obj in session.new:
-        if hasattr(obj, 'base_code') and not getattr(obj, 'base_code', None):
-            obj.base_code = base
-        elif hasattr(obj, 'base_code') and is_global_admin() and request.form.get('base_code'):
-            obj.base_code = base
+        if hasattr(obj, 'base_code'):
+            if is_global_admin() and request.form.get('base_code'):
+                obj.base_code = base
+            elif not getattr(obj, 'base_code', None):
+                obj.base_code = base
+            elif not is_global_admin():
+                obj.base_code = base
 
 
 def install_multibase_events():
-    if not getattr(db.session.__class__, '_enterprise18_events', False):
-        event.listen(db.session.__class__, 'do_orm_execute', _scoped_execute)
-        event.listen(db.session.__class__, 'before_flush', _assign_base)
-        db.session.__class__._enterprise18_events = True
+    global _EVENTS_INSTALLED
+    if _EVENTS_INSTALLED:
+        return
+    event.listen(Session, 'do_orm_execute', _scoped_execute)
+    event.listen(Session, 'before_flush', _assign_base)
+    _EVENTS_INSTALLED = True
 
 
 def _oil_status(vehicle):
@@ -169,7 +183,8 @@ def edit_user(user_id):
             user.role = role
             user.base_code = normalize_base(request.form.get('base_code') or user.base_code)
         db.session.add(AuditLog(action='EDIT_USER', entity_type='USER', entity_id=user.id,
-            description=f'Cadastro atualizado de {old_name} para {user.name}. Base: {user.base_code}.', user_id=current_user.id))
+            description=f'Cadastro atualizado de {old_name} para {user.name}. Base: {user.base_code}.', user_id=current_user.id,
+            base_code=user.base_code))
         db.session.commit()
         flash('Usuário atualizado sem perder o histórico.', 'success')
     except Exception as exc:
@@ -188,10 +203,10 @@ def checklist_report():
     q = db.session.query(
         User.id, User.name, User.base_code,
         func.count(DailyChecklist.id).label('total'),
-        func.sum(db.case((DailyChecklist.checklist_type == 'RETIRADA', 1), else_=0)).label('retiradas'),
-        func.sum(db.case((DailyChecklist.checklist_type == 'DEVOLUCAO', 1), else_=0)).label('devolucoes'),
-        func.sum(db.case((DailyChecklist.has_damage.is_(True), 1), else_=0)).label('avarias'),
-        func.sum(db.case((DailyChecklist.borrowed_vehicle.is_(True), 1), else_=0)).label('emprestadas'),
+        func.sum(case((DailyChecklist.checklist_type == 'RETIRADA', 1), else_=0)).label('retiradas'),
+        func.sum(case((DailyChecklist.checklist_type == 'DEVOLUCAO', 1), else_=0)).label('devolucoes'),
+        func.sum(case((DailyChecklist.has_damage.is_(True), 1), else_=0)).label('avarias'),
+        func.sum(case((DailyChecklist.borrowed_vehicle.is_(True), 1), else_=0)).label('emprestadas'),
         func.max(DailyChecklist.checklist_date).label('ultimo'),
     ).join(DailyChecklist, DailyChecklist.driver_id == User.id).filter(DailyChecklist.is_deleted.is_(False))
     if start_raw:
