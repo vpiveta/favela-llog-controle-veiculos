@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<header class="page-head"><div><h2>Relatório de checklists</h2><p>Quantidade de checklists por motorista, período e base.</p></div></header>
+<section class="panel e18-report-filter">
+<form method="get" class="form-grid">
+<label>Data inicial<input type="date" name="start" value="{{ start }}"></label>
+<label>Data final<input type="date" name="end" value="{{ end }}"></label>
+{% if current_user.is_global_admin %}<label>Base<select name="base_code"><option value="">Todas</option>{% for base in bases %}<option value="{{base}}" {% if base_filter==base %}selected{% endif %}>{{base}}</option>{% endfor %}</select></label>{% endif %}
+<div class="wide row-actions"><button>Aplicar filtros</button><a class="btn alt" href="{{ url_for('enterprise18.checklist_report', start=start, end=end, base_code=base_filter, format='csv') }}">Baixar CSV</a></div>
+</form>
+</section>
+<section class="panel"><div class="section-head"><div><h3>Checklists por motorista</h3><p class="muted">Retirada, devolução, avarias e uso de moto emprestada.</p></div><span class="count-pill">{{ rows|length }} motoristas</span></div>
+<div class="table-wrap"><table><thead><tr><th>Base</th><th>Motorista</th><th>Total</th><th>Retiradas</th><th>Devoluções</th><th>Avarias</th><th>Moto emprestada</th><th>Último</th></tr></thead><tbody>{% for r in rows %}<tr><td><b>{{r.base_code}}</b></td><td>{{r.name}}</td><td>{{r.total}}</td><td>{{r.retiradas or 0}}</td><td>{{r.devolucoes or 0}}</td><td>{{r.avarias or 0}}</td><td>{{r.emprestadas or 0}}</td><td>{{r.ultimo.strftime('%d/%m/%Y') if r.ultimo else '-'}}</td></tr>{% else %}<tr><td colspan="8">Nenhum checklist encontrado no período.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}
