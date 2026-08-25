@@ -5,7 +5,10 @@ from datetime import datetime
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for, Response, session as flask_session, g
+from flask import (
+    Blueprint, abort, flash, redirect, render_template, request, url_for,
+    Response, session as flask_session, g, has_request_context
+)
 from flask_login import current_user, login_required
 from sqlalchemy import event, func, case
 from sqlalchemy.orm import with_loader_criteria, Session
@@ -43,20 +46,16 @@ def current_base():
     return normalize_base(getattr(current_user, 'base_code', 'SDA9'))
 
 
-def requested_write_base():
-    if is_global_admin():
-        return normalize_base(request.form.get('base_code') or request.args.get('base_code') or 'SDA9')
-    return current_base() or 'SDA9'
-
-
 def _session_scope():
+    if not has_request_context():
+        return None, None
     role = flask_session.get('e18_role')
     base = flask_session.get('e18_base')
     return role, normalize_base(base) if base else None
 
 
 def _scoped_execute(execute_state):
-    if not execute_state.is_select:
+    if not execute_state.is_select or not has_request_context():
         return
     if getattr(g, '_enterprise18_loading_user', False):
         return
@@ -67,7 +66,9 @@ def _scoped_execute(execute_state):
         return
     statement = execute_state.statement
     for model in SCOPED_MODELS:
-        statement = statement.options(with_loader_criteria(model, lambda cls, b=base: cls.base_code == b, include_aliases=True))
+        statement = statement.options(
+            with_loader_criteria(model, lambda cls, b=base: cls.base_code == b, include_aliases=True)
+        )
     execute_state.statement = statement
 
 
@@ -89,14 +90,19 @@ def _object_base(obj, fallback):
     if isinstance(obj, StoredFile):
         uploader = getattr(obj, 'uploaded_by', None)
         return normalize_base(getattr(uploader, 'base_code', None) or fallback)
+    if isinstance(obj, AdminNotification) and getattr(obj, 'checklist', None):
+        return normalize_base(obj.checklist.base_code or fallback)
     return normalize_base(fallback)
 
 
 def _assign_base(session, flush_context, instances):
-    if not flask_session.get('_user_id'):
+    if not has_request_context() or not flask_session.get('_user_id'):
         return
     role, session_base = _session_scope()
-    requested = normalize_base(request.form.get('base_code') or request.args.get('base_code') or session_base or 'SDA9') if role in ('ADMIN','ADMIN_GLOBAL') else (session_base or 'SDA9')
+    if role in ('ADMIN', 'ADMIN_GLOBAL'):
+        requested = normalize_base(request.form.get('base_code') or request.args.get('base_code') or session_base or 'SDA9')
+    else:
+        requested = session_base or 'SDA9'
     for obj in session.new:
         if hasattr(obj, 'base_code'):
             obj.base_code = _object_base(obj, requested)
@@ -112,9 +118,14 @@ def install_multibase_events():
 
 
 def _oil_status(vehicle):
-    last_change = OilChange.query.filter_by(vehicle_id=vehicle.id).order_by(OilChange.change_date.desc(), OilChange.id.desc()).first()
+    last_change = OilChange.query.filter_by(vehicle_id=vehicle.id).order_by(
+        OilChange.change_date.desc(), OilChange.id.desc()
+    ).first()
     if not last_change:
-        return {'level': 'none', 'label': 'Sem troca registrada', 'current_km': vehicle.current_km or 0, 'traveled': 0, 'remaining': 990}
+        return {
+            'level': 'none', 'label': 'Sem troca registrada',
+            'current_km': vehicle.current_km or 0, 'traveled': 0, 'remaining': 990
+        }
     latest_checklist_km = db.session.query(func.max(DailyChecklist.odometer)).filter(
         DailyChecklist.vehicle_id == vehicle.id,
         DailyChecklist.is_deleted.is_(False),
@@ -129,47 +140,73 @@ def _oil_status(vehicle):
         level, label = 'warning', 'Próximo da troca'
     else:
         level, label = 'success', 'Óleo em dia'
-    return {'level': level, 'label': label, 'current_km': current_km, 'traveled': traveled, 'remaining': remaining, 'base_km': last_change.odometer}
+    return {
+        'level': level, 'label': label, 'current_km': current_km,
+        'traveled': traveled, 'remaining': remaining, 'base_km': last_change.odometer
+    }
 
 
 def _driver_action_status(user):
     today = local_today()
-    today_rows = DailyChecklist.query.filter_by(driver_id=user.id, checklist_date=today, is_deleted=False).order_by(DailyChecklist.created_at.asc()).all()
-    retiradas = [r for r in today_rows if r.checklist_type == 'RETIRADA']
-    devolucoes = [r for r in today_rows if r.checklist_type == 'DEVOLUCAO']
+    rows = DailyChecklist.query.filter_by(
+        driver_id=user.id, checklist_date=today, is_deleted=False
+    ).order_by(DailyChecklist.created_at.asc()).all()
+    retiradas = [r for r in rows if r.checklist_type == 'RETIRADA']
+    devolucoes = [r for r in rows if r.checklist_type == 'DEVOLUCAO']
     if not retiradas:
-        return {'level': 'danger', 'title': 'Checklist de retirada pendente', 'text': 'Faça o checklist antes de iniciar a operação.', 'url': url_for('main.checklist_new', type='RETIRADA')}
+        return {
+            'level': 'danger', 'title': 'Checklist de retirada pendente',
+            'text': 'Faça o checklist antes de iniciar a operação.',
+            'url': url_for('main.checklist_new', type='RETIRADA')
+        }
     if len(devolucoes) < len(retiradas):
-        return {'level': 'warning', 'title': 'Checklist de devolução pendente', 'text': 'Ao finalizar o uso da moto, registre a devolução.', 'url': url_for('main.checklist_new', type='DEVOLUCAO')}
-    return {'level': 'success', 'title': 'Checklists do dia concluídos', 'text': 'Retirada e devolução registradas.', 'url': url_for('main.checklist_history')}
+        return {
+            'level': 'warning', 'title': 'Checklist de devolução pendente',
+            'text': 'Ao finalizar o uso da moto, registre a devolução.',
+            'url': url_for('main.checklist_new', type='DEVOLUCAO')
+        }
+    return {
+        'level': 'success', 'title': 'Checklists do dia concluídos',
+        'text': 'Retirada e devolução registradas.',
+        'url': url_for('main.checklist_history')
+    }
 
 
 def enterprise18_context():
     if not getattr(current_user, 'is_authenticated', False):
         return {'e18': None}
-    data = {'base': current_base(), 'is_global': is_global_admin(), 'is_base_admin': is_base_admin(), 'bases': BASES}
-    if getattr(current_user, 'role', '') == 'DRIVER':
+    data = {
+        'base': current_base(), 'is_global': is_global_admin(),
+        'is_base_admin': is_base_admin(), 'bases': BASES
+    }
+    if current_user.role == 'DRIVER':
         data['driver_action'] = _driver_action_status(current_user)
         vehicle = current_user.vehicle
         data['oil'] = _oil_status(vehicle) if vehicle and vehicle.vehicle_type == 'MOTORCYCLE' else None
-    elif getattr(current_user, 'is_admin', False):
+    elif current_user.is_admin:
         vehicles = Vehicle.query.filter_by(vehicle_type='MOTORCYCLE').order_by(Vehicle.plate).all()
         statuses = [{'vehicle': v, **_oil_status(v)} for v in vehicles]
+        today = local_today()
+        drivers = User.query.filter_by(role='DRIVER', active=True).all()
         data['fleet'] = {
             'total': len(statuses),
             'danger': sum(1 for s in statuses if s['level'] == 'danger'),
             'warning': sum(1 for s in statuses if s['level'] == 'warning'),
             'none': sum(1 for s in statuses if s['level'] == 'none'),
             'success': sum(1 for s in statuses if s['level'] == 'success'),
+            'retirada_pendente': sum(
+                1 for d in drivers
+                if not DailyChecklist.query.filter_by(
+                    driver_id=d.id, checklist_date=today,
+                    checklist_type='RETIRADA', is_deleted=False
+                ).first()
+            ),
         }
-        today = local_today()
-        drivers = User.query.filter_by(role='DRIVER', active=True).all()
-        data['fleet']['retirada_pendente'] = sum(1 for d in drivers if not DailyChecklist.query.filter_by(driver_id=d.id, checklist_date=today, checklist_type='RETIRADA', is_deleted=False).first())
     return {'e18': data}
 
 
 def _admin_required():
-    if not getattr(current_user, 'is_admin', False):
+    if not current_user.is_admin:
         abort(403)
 
 
@@ -200,9 +237,11 @@ def edit_user(user_id):
                 raise ValueError('Perfil inválido.')
             user.role = role
             user.base_code = normalize_base(request.form.get('base_code') or user.base_code)
-        db.session.add(AuditLog(action='EDIT_USER', entity_type='USER', entity_id=user.id,
-            description=f'Cadastro atualizado de {old_name} para {user.name}. Base: {user.base_code}.', user_id=current_user.id,
-            base_code=user.base_code))
+        db.session.add(AuditLog(
+            action='EDIT_USER', entity_type='USER', entity_id=user.id,
+            description=f'Cadastro atualizado de {old_name} para {user.name}. Base: {user.base_code}.',
+            user_id=current_user.id, base_code=user.base_code
+        ))
         db.session.commit()
         flash('Usuário atualizado sem perder o histórico.', 'success')
     except Exception as exc:
@@ -226,7 +265,9 @@ def checklist_report():
         func.sum(case((DailyChecklist.has_damage.is_(True), 1), else_=0)).label('avarias'),
         func.sum(case((DailyChecklist.borrowed_vehicle.is_(True), 1), else_=0)).label('emprestadas'),
         func.max(DailyChecklist.checklist_date).label('ultimo'),
-    ).join(DailyChecklist, DailyChecklist.driver_id == User.id).filter(DailyChecklist.is_deleted.is_(False))
+    ).join(DailyChecklist, DailyChecklist.driver_id == User.id).filter(
+        DailyChecklist.is_deleted.is_(False)
+    )
     if start_raw:
         q = q.filter(DailyChecklist.checklist_date >= datetime.strptime(start_raw, '%Y-%m-%d').date())
     if end_raw:
@@ -239,9 +280,19 @@ def checklist_report():
         writer = csv.writer(out, delimiter=';')
         writer.writerow(['Base','Motorista','Total','Retiradas','Devolucoes','Avarias','Moto emprestada','Ultimo checklist'])
         for r in rows:
-            writer.writerow([r.base_code, r.name, r.total, r.retiradas or 0, r.devolucoes or 0, r.avarias or 0, r.emprestadas or 0, r.ultimo.strftime('%d/%m/%Y') if r.ultimo else ''])
-        return Response('\ufeff' + out.getvalue(), mimetype='text/csv; charset=utf-8', headers={'Content-Disposition':'attachment; filename=relatorio_checklists.csv'})
-    return render_template('admin/checklist_report.html', rows=rows, bases=BASES, start=start_raw or '', end=end_raw or '', base_filter=base_filter or '')
+            writer.writerow([
+                r.base_code, r.name, r.total, r.retiradas or 0, r.devolucoes or 0,
+                r.avarias or 0, r.emprestadas or 0,
+                r.ultimo.strftime('%d/%m/%Y') if r.ultimo else ''
+            ])
+        return Response(
+            '\ufeff' + out.getvalue(), mimetype='text/csv; charset=utf-8',
+            headers={'Content-Disposition':'attachment; filename=relatorio_checklists.csv'}
+        )
+    return render_template(
+        'admin/checklist_report.html', rows=rows, bases=BASES,
+        start=start_raw or '', end=end_raw or '', base_filter=base_filter or ''
+    )
 
 
 def _phone(value):
@@ -253,11 +304,13 @@ def _checklist_message(checklist):
     base_url = os.getenv('ONLINE_URL') or request.url_root.rstrip('/')
     share_url = f"{base_url}{url_for('main.checklist_share', token=checklist.share_token)}"
     action = 'devolução' if checklist.checklist_type == 'DEVOLUCAO' else 'retirada'
-    return (f"FAVELA LLOG - Controle de Veículos\n\nChecklist de {action}\n"
-            f"Motorista: {checklist.driver.name}\nBase: {checklist.base_code}\n"
-            f"Moto: {checklist.vehicle.brand} {checklist.vehicle.model} - {checklist.vehicle.plate}\n"
-            f"Data: {checklist.checklist_date.strftime('%d/%m/%Y')}\nKM: {checklist.odometer}\n\n"
-            f"Checklist e imagens: {share_url}")
+    return (
+        f"FAVELA LLOG - Controle de Veículos\n\nChecklist de {action}\n"
+        f"Motorista: {checklist.driver.name}\nBase: {checklist.base_code}\n"
+        f"Moto: {checklist.vehicle.brand} {checklist.vehicle.model} - {checklist.vehicle.plate}\n"
+        f"Data: {checklist.checklist_date.strftime('%d/%m/%Y')}\nKM: {checklist.odometer}\n\n"
+        f"Checklist e imagens: {share_url}"
+    )
 
 
 def _cloud_send(phone, message):
@@ -266,9 +319,16 @@ def _cloud_send(phone, message):
     if not token or not phone_number_id:
         return False
     import json
-    payload = json.dumps({'messaging_product':'whatsapp','to':phone,'type':'text','text':{'body':message}}).encode('utf-8')
-    req = Request(f'https://graph.facebook.com/v22.0/{phone_number_id}/messages', data=payload,
-                  headers={'Authorization':f'Bearer {token}','Content-Type':'application/json'}, method='POST')
+    payload = json.dumps({
+        'messaging_product':'whatsapp', 'to':phone, 'type':'text',
+        'text':{'body':message}
+    }).encode('utf-8')
+    req = Request(
+        f'https://graph.facebook.com/v22.0/{phone_number_id}/messages',
+        data=payload,
+        headers={'Authorization':f'Bearer {token}','Content-Type':'application/json'},
+        method='POST'
+    )
     with urlopen(req, timeout=12) as response:
         return 200 <= response.status < 300
 
@@ -295,9 +355,8 @@ def send_driver_whatsapp(checklist_id):
             return redirect(url_for('main.checklist_detail', checklist_id=checklist.id))
     except Exception:
         db.session.rollback()
-    checklist.whatsapp_sent_at = utc_now()
-    checklist.whatsapp_confirmed_by_id = current_user.id
-    db.session.commit()
+    # Sem API oficial configurada, abre a conversa correta. Não marca como enviado
+    # porque o sistema não pode afirmar que o usuário realmente apertou Enviar.
     return redirect(f'https://wa.me/{phone}?text={quote(message)}')
 
 
@@ -305,13 +364,31 @@ def init_enterprise18(app):
     install_multibase_events()
 
     @app.before_request
-    def _sync_enterprise18_session():
-        if getattr(current_user, 'is_authenticated', False):
+    def _sync_enterprise18_session_and_guards():
+        if current_user.is_authenticated:
             flask_session['e18_role'] = current_user.role
             flask_session['e18_base'] = current_user.base_code
         else:
             flask_session.pop('e18_role', None)
             flask_session.pop('e18_base', None)
+            return
+
+        # Garante que veículo e motorista nunca sejam vinculados entre bases.
+        if request.method == 'POST' and request.endpoint in ('main.vehicles', 'main.edit_vehicle'):
+            target_base = normalize_base(
+                request.form.get('base_code') if is_global_admin() else current_user.base_code
+            )
+            driver_id = request.form.get('driver_id', type=int)
+            if driver_id:
+                driver = db.session.get(User, driver_id)
+                if not driver or driver.role != 'DRIVER' or driver.base_code != target_base:
+                    flash('O motorista selecionado não pertence à mesma base do veículo.', 'danger')
+                    return redirect(url_for('main.vehicles'))
+            if request.endpoint == 'main.edit_vehicle' and is_global_admin():
+                vehicle_id = (request.view_args or {}).get('vehicle_id')
+                vehicle = db.session.get(Vehicle, vehicle_id) if vehicle_id else None
+                if vehicle:
+                    vehicle.base_code = target_base
 
     app.register_blueprint(enterprise18_bp)
     app.context_processor(enterprise18_context)
