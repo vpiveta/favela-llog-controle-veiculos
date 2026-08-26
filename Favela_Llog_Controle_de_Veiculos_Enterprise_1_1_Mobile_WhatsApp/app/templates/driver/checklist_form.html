@@ -2,70 +2,21 @@
 {% set is_return = checklist_type == 'DEVOLUCAO' %}
 {% block title %}Checklist de {{ 'Devolução' if is_return else 'Retirada' }}{% endblock %}
 {% block content %}
-<header class="page-head">
-  <div>
-    <h2>Checklist de {{ 'devolução' if is_return else 'retirada' }} da moto</h2>
-    <p>{% if is_return %}Registre o estado e a quilometragem no momento da devolução.{% else %}Registre o estado da moto antes de iniciar o uso.{% endif %}</p>
-  </div>
-  <div class="checklist-type-switch">
-    <a class="btn {{'alt' if is_return else ''}}" href="{{url_for('main.checklist_new',type='RETIRADA')}}">Retirada</a>
-    <a class="btn {{'' if is_return else 'alt'}}" href="{{url_for('main.checklist_new',type='DEVOLUCAO')}}">Devolução</a>
-  </div>
-</header>
+<header class="page-head"><div><h2>Checklist de {{ 'devolução' if is_return else 'retirada' }} da moto</h2><p>{% if is_return %}Registre o estado e a quilometragem no momento da devolução.{% else %}Registre o estado da moto antes de iniciar o uso.{% endif %}</p></div><div class="checklist-type-switch"><a class="btn {{'alt' if is_return else ''}}" href="{{url_for('main.checklist_new',type='RETIRADA')}}">Retirada</a><a class="btn {{'' if is_return else 'alt'}}" href="{{url_for('main.checklist_new',type='DEVOLUCAO')}}">Devolução</a></div></header>
 <form method="post" enctype="multipart/form-data" class="panel form-grid mobile-form" id="checklistForm" data-checklist-type="{{checklist_type}}">
-  <input type="hidden" name="checklist_type" value="{{checklist_type}}">
-  <div class="vehicle-summary wide">
-    <small>Motorista · {{ 'Devolução' if is_return else 'Retirada' }}</small>
-    <strong>{{ current_user.name }}</strong>
-    <span>{{ today.strftime('%d/%m/%Y') }}</span>
-  </div>
-  {% if is_return and active_checklist %}
-  <div class="notice wide"><b>Moto em uso:</b> {{active_checklist.vehicle.plate}} foi selecionada conforme o último checklist de retirada.</div>
-  {% elif is_return %}
-  <div class="notice wide"><b>Atenção:</b> não há uma retirada ativa. Selecione manualmente a moto que será devolvida.</div>
-  {% endif %}
-  <label class="wide">{{ 'Moto devolvida' if is_return else 'Moto utilizada' }}
-    <select name="vehicle_id" id="checklistVehicle" data-own-vehicle="{{own_vehicle.id if own_vehicle else ''}}" required>
-      <option value="">Selecione</option>
-      {% for v in vehicles %}
-      <option value="{{v.id}}" {% if request.form.get('vehicle_id') == v.id|string or (not request.form.get('vehicle_id') and default_vehicle and v.id==default_vehicle.id) %}selected{% endif %}>{{v.plate}} · {{v.driver.name if v.driver else 'Sem motorista vinculado'}}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <label class="wide">Quilometragem atual
-    <input type="number" name="odometer" min="0" inputmode="numeric" required placeholder="Ex.: 15480" value="{{request.form.get('odometer','')}}">
-  </label>
-  <div class="wide borrow-summary" id="borrowSummary" hidden></div>
-  <label class="wide" id="borrowReasonWrap" hidden>{{ 'Observação da devolução (opcional)' if is_return else 'Motivo para utilizar a moto de outro motorista' }}
-    <textarea name="borrow_reason" id="borrowReason" placeholder="{{'Informe uma observação, se necessário' if is_return else 'Explique por que está utilizando esta moto'}}">{{request.form.get('borrow_reason','')}}</textarea>
-  </label>
-  <h3 class="wide section-title">Conferência dos itens</h3>
-  {% set items=[('tires_ok','Pneus'),('brakes_ok','Freios'),('lights_ok','Luzes'),('indicators_ok','Setas'),('mirrors_ok','Retrovisores'),('horn_ok','Buzina'),('chain_ok','Corrente'),('charger_ok','Carregador'),('phone_holder_ok','Suporte de celular'),('top_case_ok','Baú'),('saddlebags_ok','Alforje')] %}
-  {% for name,label in items %}
-  <label>{{label}}
-    <select name="{{name}}" required><option value="ok">OK</option><option value="attention" {% if request.form.get(name)=='attention' %}selected{% endif %}>Atenção</option></select>
-  </label>
-  {% endfor %}
-  <label>Estado geral
-    <select name="general_condition" required><option value="GOOD">Boa</option><option value="ATTENTION">Atenção</option><option value="MAINTENANCE">Necessita manutenção</option></select>
-  </label>
-  <label class="wide">Existe alguma avaria?
-    <select name="has_damage" id="hasDamage" required><option value="no">Não</option><option value="yes">Sim</option></select>
-  </label>
-  <div class="wide form-grid" id="damageFields" hidden>
-    <label class="wide">Descrição da avaria<textarea name="damage_description" id="damageDescription"></textarea></label>
-    <label class="camera-field wide"><input class="camera-input" type="file" name="damage_photo" id="damagePhoto" accept="image/*" capture="environment" data-preview="damagePreview"><span class="camera-button">📷 Tirar foto da avaria</span><small>Obrigatória quando houver avaria</small></label>
-    <img class="receipt-preview" id="damagePreview" hidden alt="Prévia da avaria">
-  </div>
-  <h3 class="wide section-title">Fotos obrigatórias</h3>
-  {% for field,label in [('front_photo','Frente'),('rear_photo','Traseira'),('right_photo','Lado direito'),('left_photo','Lado esquerdo')] %}
-  <label class="camera-field"><input class="camera-input" type="file" name="{{field}}" accept="image/*" capture="environment" required data-preview="preview_{{field}}"><span class="camera-button">📷 {{label}}</span><small>Abra a câmera do celular</small></label>
-  <img class="receipt-preview compact-preview" id="preview_{{field}}" hidden alt="Prévia {{label}}">
-  {% endfor %}
-  <div class="notice wide">
-    {% if is_return %}<b>Devolução:</b> este checklist encerra a moto ativa para os próximos abastecimentos do motorista.
-    {% else %}<b>Retirada:</b> esta moto será usada automaticamente no próximo abastecimento até o envio do checklist de devolução.{% endif %}
-  </div>
-  <button class="wide primary-large">Salvar checklist de {{ 'devolução' if is_return else 'retirada' }}</button>
-</form>
-{% endblock %}
+<input type="hidden" name="checklist_type" value="{{checklist_type}}">
+<div class="vehicle-summary wide"><small>Motorista · {{ 'Devolução' if is_return else 'Retirada' }}</small><strong>{{ current_user.name }}</strong><span>{{ today.strftime('%d/%m/%Y') }}</span></div>
+{% if active_vehicle %}<div class="notice wide"><b>Veículo ativo da sessão:</b> {{active_vehicle.plate}} · {{active_vehicle.brand}} {{active_vehicle.model}}{% if active_vehicle.driver %} · Responsável: {{active_vehicle.driver.name}}{% endif %}</div>{% endif %}
+{% if is_return and active_checklist %}<div class="notice wide"><b>Moto em uso:</b> {{active_checklist.vehicle.plate}} foi selecionada conforme o último checklist de retirada.</div>{% elif is_return %}<div class="notice wide"><b>Atenção:</b> não há uma retirada ativa. Selecione manualmente a moto que será devolvida.</div>{% endif %}
+<label class="wide">{{ 'Moto devolvida' if is_return else 'Moto utilizada' }}<select name="vehicle_id" id="checklistVehicle" data-own-vehicle="{{own_vehicle.id if own_vehicle else ''}}" required><option value="">Selecione</option>{% for v in vehicles %}<option value="{{v.id}}" {% if request.form.get('vehicle_id') == v.id|string or (not request.form.get('vehicle_id') and active_vehicle and v.id==active_vehicle.id) or (not request.form.get('vehicle_id') and not active_vehicle and default_vehicle and v.id==default_vehicle.id) %}selected{% endif %}>{{v.plate}} · {{v.driver.name if v.driver else 'Sem motorista vinculado'}}</option>{% endfor %}</select></label>
+<label class="wide">Quilometragem atual<input type="number" name="odometer" min="0" inputmode="numeric" required placeholder="Ex.: 15480" value="{{request.form.get('odometer','')}}"></label>
+<div class="wide borrow-summary" id="borrowSummary" hidden></div>
+<label class="wide" id="borrowReasonWrap" hidden>{{ 'Observação da devolução (opcional)' if is_return else 'Motivo para utilizar a moto de outro motorista' }}<textarea name="borrow_reason" id="borrowReason" placeholder="{{'Informe uma observação, se necessário' if is_return else 'Explique por que está utilizando esta moto'}}">{{request.form.get('borrow_reason',active_vehicle_justification or '')}}</textarea></label>
+<h3 class="wide section-title">Conferência dos itens</h3>
+{% set items=[('tires_ok','Pneus'),('brakes_ok','Freios'),('lights_ok','Luzes'),('indicators_ok','Setas'),('mirrors_ok','Retrovisores'),('horn_ok','Buzina'),('chain_ok','Corrente'),('charger_ok','Carregador'),('phone_holder_ok','Suporte de celular'),('top_case_ok','Baú'),('saddlebags_ok','Alforje')] %}
+{% for name,label in items %}<div class="checklist-attention-item"><label>{{label}}<select name="{{name}}" required data-attention-select data-reason-target="{{name}}_reason"><option value="ok">OK</option><option value="attention" {% if request.form.get(name)=='attention' %}selected{% endif %}>Atenção</option></select></label><label class="attention-reason" data-attention-reason="{{name}}_reason" hidden>Motivo da atenção · {{label}}<textarea name="{{name}}_reason" placeholder="Descreva o problema encontrado">{{request.form.get(name ~ '_reason','')}}</textarea></label></div>{% endfor %}
+<div class="checklist-attention-item"><label>Estado geral<select name="general_condition" required data-attention-select data-reason-target="general_condition_reason"><option value="GOOD">Boa</option><option value="ATTENTION" {% if request.form.get('general_condition')=='ATTENTION' %}selected{% endif %}>Atenção</option><option value="MAINTENANCE" {% if request.form.get('general_condition')=='MAINTENANCE' %}selected{% endif %}>Necessita manutenção</option></select></label><label class="attention-reason" data-attention-reason="general_condition_reason" hidden>Motivo do estado geral<textarea name="general_condition_reason" placeholder="Descreva o motivo">{{request.form.get('general_condition_reason','')}}</textarea></label></div>
+<label class="wide">Existe alguma avaria?<select name="has_damage" id="hasDamage" required><option value="no">Não</option><option value="yes">Sim</option></select></label>
+<div class="wide form-grid" id="damageFields" hidden><label class="wide">Descrição da avaria<textarea name="damage_description" id="damageDescription"></textarea></label><label class="camera-field wide"><input class="camera-input" type="file" name="damage_photo" id="damagePhoto" accept="image/*" capture="environment" data-preview="damagePreview"><span class="camera-button">📷 Tirar foto da avaria</span><small>Obrigatória quando houver avaria</small></label><img class="receipt-preview" id="damagePreview" hidden alt="Prévia da avaria"></div>
+<h3 class="wide section-title">Fotos obrigatórias</h3>{% for field,label in [('front_photo','Frente'),('rear_photo','Traseira'),('right_photo','Lado direito'),('left_photo','Lado esquerdo')] %}<label class="camera-field"><input class="camera-input" type="file" name="{{field}}" accept="image/*" capture="environment" required data-preview="preview_{{field}}"><span class="camera-button">📷 {{label}}</span><small>Abra a câmera do celular</small></label><img class="receipt-preview compact-preview" id="preview_{{field}}" hidden alt="Prévia {{label}}">{% endfor %}
+<div class="notice wide"><b>Nova regra:</b> qualquer item marcado como Atenção gera uma pendência visível até ser solucionada por uma manutenção vinculada.</div><button class="wide primary-large">Salvar checklist de {{ 'devolução' if is_return else 'retirada' }}</button></form>{% endblock %}

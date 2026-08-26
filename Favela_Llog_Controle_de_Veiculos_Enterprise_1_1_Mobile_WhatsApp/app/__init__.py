@@ -48,6 +48,12 @@ def create_app():
     init_enterprise18(app)
     from .enterprise18_adjustments import init_adjustments
     init_adjustments(app)
+    from .enterprise19 import init_enterprise19
+    init_enterprise19(app)
+    from .enterprise19_extra import init_enterprise19_extra
+    init_enterprise19_extra(app)
+    from .enterprise19_history import init_enterprise19_history
+    init_enterprise19_history(app)
     from .cli import register_cli
     register_cli(app)
     with app.app_context():
@@ -59,10 +65,10 @@ def create_app():
                 'user': [('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'")],
                 'alert_recipient': [('phone', 'VARCHAR(30)')],
                 'vehicle': [('vehicle_type', "VARCHAR(20) NOT NULL DEFAULT 'MOTORCYCLE'"), ('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'")],
-                'expense': [('asset_type', "VARCHAR(20) NOT NULL DEFAULT 'MOTORCYCLE'"), ('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'"), ('authorized_by_id','INTEGER'), ('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'), ('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
+                'expense': [('asset_type', "VARCHAR(20) NOT NULL DEFAULT 'MOTORCYCLE'"), ('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'"), ('authorized_by_id','INTEGER'), ('responsible_driver_id','INTEGER'), ('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'), ('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
                 'maintenance_detail': [('is_oil_change','BOOLEAN NOT NULL DEFAULT FALSE'), ('oil_amount','NUMERIC(12,2)')],
                 'oil_change': [('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'")],
-                'daily_checklist': [('odometer','INTEGER NOT NULL DEFAULT 0'), ('checklist_type',"VARCHAR(20) NOT NULL DEFAULT 'RETIRADA'"), ('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'"), ('charger_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('phone_holder_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('top_case_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('saddlebags_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'), ('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
+                'daily_checklist': [('odometer','INTEGER NOT NULL DEFAULT 0'), ('checklist_type',"VARCHAR(20) NOT NULL DEFAULT 'RETIRADA'"), ('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'"), ('attention_notes','TEXT'), ('charger_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('phone_holder_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('top_case_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('saddlebags_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'), ('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
                 'admin_notification': [('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'"), ('whatsapp_sent_at','TIMESTAMP'),('whatsapp_sent_by_id','INTEGER')],
                 'stored_file': [('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'"), ('storage_bucket','VARCHAR(120)'),('storage_path','VARCHAR(600)'),('storage_migrated_at','TIMESTAMP')],
                 'oil_alert_status': [('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'")],
@@ -83,6 +89,7 @@ def create_app():
                 db.session.execute(text(f"UPDATE {table_sql} SET base_code = 'SDA9' WHERE base_code IS NULL OR base_code = ''"))
             db.session.execute(text("UPDATE vehicle SET vehicle_type = 'MOTORCYCLE' WHERE vehicle_type IS NULL OR vehicle_type = ''"))
             db.session.execute(text("UPDATE expense SET asset_type = 'MOTORCYCLE' WHERE asset_type IS NULL OR asset_type = ''"))
+            db.session.execute(text("UPDATE expense SET responsible_driver_id = (SELECT vehicle.driver_id FROM vehicle WHERE vehicle.id = expense.vehicle_id) WHERE responsible_driver_id IS NULL"))
             db.session.commit()
         except Exception:
             db.session.rollback()

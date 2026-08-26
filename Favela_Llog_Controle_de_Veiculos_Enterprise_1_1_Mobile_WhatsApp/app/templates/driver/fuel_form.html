@@ -1,58 +1,8 @@
 {% extends 'base.html' %}
 {% block content %}
-<header class="page-head">
-  <div><h2>Novo abastecimento</h2><p>Selecione o veículo utilizado. Você só visualiza veículos da sua base.</p></div>
-  <div class="checklist-type-switch">
-    <a class="btn {{'alt' if selected_type!='MOTORCYCLE'}}" href="{{url_for('main.fuel_new',type='MOTORCYCLE')}}">Moto</a>
-    <a class="btn {{'alt' if selected_type!='CAR'}}" href="{{url_for('main.fuel_new',type='CAR')}}">Carro</a>
-  </div>
-</header>
+<header class="page-head"><div><h2>Novo abastecimento</h2><p>Selecione o veículo abastecido. O lançamento ficará vinculado ao responsável cadastrado da placa e também registrará quem fez o lançamento.</p></div><div class="checklist-type-switch"><a class="btn {{'alt' if selected_type!='MOTORCYCLE'}}" href="{{url_for('main.fuel_new',type='MOTORCYCLE')}}">Moto</a><a class="btn {{'alt' if selected_type!='CAR'}}" href="{{url_for('main.fuel_new',type='CAR')}}">Carro</a></div></header>
 <form method="post" enctype="multipart/form-data" class="panel form-grid mobile-form" id="receiptForm" data-selected-type="{{selected_type}}" data-motorcycle-km="{{vehicle.current_km if vehicle else ''}}">
-  <label>Tipo de veículo
-    <select name="vehicle_type" id="fuelType" required>
-      <option value="MOTORCYCLE" {% if selected_type=='MOTORCYCLE' %}selected{% endif %}>Moto</option>
-      <option value="CAR" {% if selected_type=='CAR' %}selected{% endif %}>Carro</option>
-    </select>
-  </label>
-
-  <section class="wide fuel-section" data-fuel-section="MOTORCYCLE">
-    <label>Moto abastecida
-      <select name="motorcycle_vehicle_id" id="motorcycleVehicle">
-        <option value="">Selecione a moto</option>
-        {% for v in (motorcycles if current_user.is_admin else fuel_motorcycles) %}<option value="{{v.id}}" data-current-km="{{v.current_km or 0}}" {% if request.form.get('motorcycle_vehicle_id',type=int)==v.id or (not request.form and vehicle and vehicle.id==v.id) %}selected{% endif %}>{{v.plate}} · {{v.brand}} {{v.model}} · {{v.driver.name if v.driver else 'Sem motorista vinculado'}}</option>{% endfor %}
-      </select>
-      <small class="optional">O lançamento ficará registrado no veículo selecionado e no seu usuário.</small>
-    </label>
-    {% if active_checklist and active_checklist.borrowed_vehicle %}<div class="notice wide"><b>Moto em uso:</b> seu checklist atual indica a moto {{vehicle.plate}}. Você pode manter essa seleção ou escolher outro veículo realmente abastecido.</div>{% endif %}
-  </section>
-
-  <section class="wide fuel-section" data-fuel-section="CAR" hidden>
-    <label>Carro abastecido
-      <select name="car_vehicle_id" id="carVehicle">
-        <option value="">Selecione</option>
-        {% for v in cars %}<option value="{{v.id}}" data-current-km="{{v.current_km or 0}}" {% if request.form.get('car_vehicle_id',type=int)==v.id %}selected{% endif %}>{{v.plate}} · {{v.brand}} {{v.model}}</option>{% endfor %}
-      </select>
-      {% if not cars %}<small class="optional">Nenhum carro disponível na sua base.</small>{% endif %}
-    </label>
-    <label>ADM que autorizou
-      <select name="authorized_by_id" id="authorizedBy">
-        <option value="">Selecione o ADM</option>
-        {% for admin in admins %}<option value="{{admin.id}}" {% if request.form.get('authorized_by_id',type=int)==admin.id or (not request.form and current_user.is_admin and current_user.id==admin.id) %}selected{% endif %}>{{admin.name}}</option>{% endfor %}
-      </select>
-    </label>
-    <div class="notice wide"><b>Identificação obrigatória:</b> fotografe a placa do carro utilizado. A foto ficará separada da nota do abastecimento.</div>
-    <label class="wide camera-field"><span>Foto obrigatória da placa do carro</span><span class="camera-button">📷 Fotografar placa</span><input class="camera-input" id="platePhoto" type="file" name="plate_photo" accept="image/*" capture="environment" {% if selected_type=='CAR' %}required{% endif %} data-preview="platePhotoPreview"><small>Enquadre a placa inteira e deixe os caracteres legíveis.</small></label>
-    <img id="platePhotoPreview" class="receipt-preview compact-preview wide" alt="Pré-visualização da placa" hidden>
-  </section>
-
-  <label>Data<input type="date" name="expense_date" value="{{request.form.get('expense_date',today)}}" required></label>
-  <label><span id="fuelOdometerLabel">{{'KM atual do carro' if selected_type=='CAR' else 'KM atual da moto'}}</span><input id="fuelOdometer" type="number" name="odometer" min="0" inputmode="numeric" value="{{request.form.get('odometer','')}}" placeholder="Informe o KM atual" required></label>
-  <label>Valor (R$)<input name="amount" inputmode="decimal" value="{{request.form.get('amount','')}}" placeholder="0,00" required></label>
-  <label>Combustível<input type="text" value="Gasolina" readonly class="readonly-input"><input type="hidden" name="fuel_type" value="GASOLINE"></label>
-  <label>Litros <small class="optional">opcional</small><input name="liters" inputmode="decimal" value="{{request.form.get('liters','')}}" placeholder="0,00"></label>
-  <label>Posto <small class="optional">opcional</small><input name="station" value="{{request.form.get('station','')}}" autocomplete="organization"></label>
-  <label class="wide camera-field"><span id="fuelReceiptLabel">Foto da nota</span><span class="camera-button">📷 Abrir câmera</span><input class="camera-input" type="file" name="receipt" accept="image/*" capture="environment" required data-preview="receiptPreview"><small>A câmera traseira será aberta no celular. Também é possível escolher uma foto existente.</small></label>
-  <img id="receiptPreview" class="receipt-preview" alt="Pré-visualização da nota" hidden>
-  <button class="wide primary-large">Salvar abastecimento</button>
-</form>
-{% endblock %}
+<label>Tipo de veículo<select name="vehicle_type" id="fuelType" required><option value="MOTORCYCLE" {% if selected_type=='MOTORCYCLE' %}selected{% endif %}>Moto</option><option value="CAR" {% if selected_type=='CAR' %}selected{% endif %}>Carro</option></select></label>
+<section class="wide fuel-section" data-fuel-section="MOTORCYCLE"><label>Moto<select name="motorcycle_vehicle_id" id="motorcycleVehicle"><option value="">Selecione</option>{% for v in all_base_motorcycles %}<option value="{{v.id}}" data-current-km="{{v.current_km or 0}}" {% if request.form.get('motorcycle_vehicle_id',type=int)==v.id or (not request.form.get('motorcycle_vehicle_id') and active_vehicle and active_vehicle.id==v.id) %}selected{% endif %}>{{v.plate}} · {{v.brand}} {{v.model}} · {{v.driver.name if v.driver else 'Sem motorista cadastrado'}}</option>{% endfor %}</select></label><div class="notice wide"><b>Responsabilidade:</b> o abastecimento será atribuído ao motorista cadastrado na moto. Se a placa não tiver motorista, o registro ficará somente no veículo. O campo “Lançado por” manterá seu usuário.</div></section>
+<section class="wide fuel-section" data-fuel-section="CAR" hidden><label>Carro<select name="car_vehicle_id" id="carVehicle"><option value="">Selecione</option>{% for v in cars %}<option value="{{v.id}}" data-current-km="{{v.current_km or 0}}" {% if request.form.get('car_vehicle_id',type=int)==v.id %}selected{% endif %}>{{v.plate}} · {{v.brand}} {{v.model}}</option>{% endfor %}</select>{% if not cars %}<small class="optional">Nenhum carro cadastrado.</small>{% endif %}</label><label>ADM que autorizou<select name="authorized_by_id" id="authorizedBy"><option value="">Selecione o ADM</option>{% for admin in all_base_admins %}<option value="{{admin.id}}" {% if request.form.get('authorized_by_id',type=int)==admin.id or (not request.form and current_user.is_admin and current_user.id==admin.id) %}selected{% endif %}>{{admin.name}} · {{'Admin Geral' if admin.is_global_admin else 'Gerente da base'}}</option>{% endfor %}</select></label><div class="notice wide"><b>Identificação obrigatória:</b> fotografe a placa do carro utilizado.</div><label class="wide camera-field"><span>Foto obrigatória da placa do carro</span><span class="camera-button">📷 Fotografar placa</span><input class="camera-input" id="platePhoto" type="file" name="plate_photo" accept="image/*" capture="environment" {% if selected_type=='CAR' %}required{% endif %} data-preview="platePhotoPreview"><small>Enquadre a placa inteira.</small></label><img id="platePhotoPreview" class="receipt-preview compact-preview wide" alt="Pré-visualização da placa" hidden></section>
+<label>Data<input type="date" name="expense_date" value="{{request.form.get('expense_date',today)}}" required></label><label><span id="fuelOdometerLabel">{{'KM atual do carro' if selected_type=='CAR' else 'KM atual da moto'}}</span><input id="fuelOdometer" type="number" name="odometer" min="0" inputmode="numeric" value="{{request.form.get('odometer','')}}" placeholder="Ex.: {{vehicle.current_km if vehicle else 15480}}" required></label><label>Valor (R$)<input name="amount" inputmode="decimal" value="{{request.form.get('amount','')}}" placeholder="0,00" required></label><label>Combustível<input type="text" value="Gasolina" readonly class="readonly-input"><input type="hidden" name="fuel_type" value="GASOLINE"></label><label>Litros <small class="optional">opcional</small><input name="liters" inputmode="decimal" value="{{request.form.get('liters','')}}" placeholder="0,00"></label><label>Posto <small class="optional">opcional</small><input name="station" value="{{request.form.get('station','')}}" autocomplete="organization"></label><label class="wide camera-field"><span id="fuelReceiptLabel">Foto da nota</span><span class="camera-button">📷 Abrir câmera</span><input class="camera-input" type="file" name="receipt" accept="image/*" capture="environment" required data-preview="receiptPreview"><small>A câmera traseira será aberta no celular.</small></label><img id="receiptPreview" class="receipt-preview" alt="Pré-visualização da nota" hidden><button class="wide primary-large">Salvar abastecimento</button></form>{% endblock %}
