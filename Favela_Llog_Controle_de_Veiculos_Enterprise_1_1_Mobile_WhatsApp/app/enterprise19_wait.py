@@ -143,6 +143,12 @@ def vehicle_use_wait():
     return render_template('auth/waiting_vehicle_authorization.html', request_row=row)
 
 
+@wait_bp.get('/aguardando-autorizacao/cancelar')
+def cancel_vehicle_use_wait():
+    _clear_pending()
+    return redirect(url_for('auth.login'))
+
+
 @wait_bp.get('/aguardando-autorizacao/status')
 def vehicle_use_wait_status():
     if current_user.is_authenticated:
@@ -279,7 +285,8 @@ def init_enterprise19_wait(app):
             return None
         allowed = {
             'enterprise19_wait.complete_cnh', 'auth.logout', 'static',
-            'enterprise19_wait.vehicle_use_wait', 'enterprise19_wait.vehicle_use_wait_status'
+            'enterprise19_wait.vehicle_use_wait', 'enterprise19_wait.vehicle_use_wait_status',
+            'enterprise19_wait.cancel_vehicle_use_wait'
         }
         if request.endpoint in allowed:
             return None
