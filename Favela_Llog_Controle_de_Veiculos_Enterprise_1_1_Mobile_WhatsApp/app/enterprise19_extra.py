@@ -1,6 +1,8 @@
 import json
 from flask import flash, redirect, request
 from flask_login import current_user
+from sqlalchemy import event
+from sqlalchemy.orm import Session
 
 from .models import User, VehicleIssue
 
@@ -9,6 +11,7 @@ ITEMS = [
     ('mirrors_ok','Retrovisores'),('horn_ok','Buzina'),('chain_ok','Corrente'),('charger_ok','Carregador'),
     ('phone_holder_ok','Suporte de celular'),('top_case_ok','Baú'),('saddlebags_ok','Alforje')
 ]
+_LINK_EVENT = False
 
 
 def _extra_context():
@@ -55,9 +58,27 @@ def attention_notes_list(raw):
         return []
 
 
+def _repair_new_issue_links(sess, flush_context, instances):
+    # O VehicleIssue é criado no mesmo flush do checklist. Garante os FKs antes do INSERT.
+    for obj in list(sess.new):
+        if not isinstance(obj, VehicleIssue):
+            continue
+        checklist = getattr(obj, 'checklist', None)
+        if not obj.vehicle_id and checklist is not None:
+            obj.vehicle_id = checklist.vehicle_id
+        if not obj.reported_by_id and checklist is not None:
+            obj.reported_by_id = checklist.driver_id
+        if checklist is not None and (not obj.base_code or obj.base_code == 'SDA9'):
+            obj.base_code = checklist.base_code or getattr(getattr(checklist, 'vehicle', None), 'base_code', None) or 'SDA9'
+
+
 def init_enterprise19_extra(app):
+    global _LINK_EVENT
     app.jinja_env.filters['attention_notes_list'] = attention_notes_list
     app.context_processor(_extra_context)
+    if not _LINK_EVENT:
+        event.listen(Session, 'before_flush', _repair_new_issue_links)
+        _LINK_EVENT = True
 
     @app.before_request
     def validate_enterprise19_forms():
