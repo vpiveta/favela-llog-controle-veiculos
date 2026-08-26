@@ -1,10 +1,8 @@
 import json
-from datetime import timedelta
-from flask import flash, has_request_context, redirect, request, url_for
+from flask import flash, redirect, request
 from flask_login import current_user
 
-from .models import User, VehicleIssue, VehicleUseRequest
-from .time_utils import utc_now
+from .models import User, VehicleIssue
 
 ITEMS = [
     ('tires_ok','Pneus'),('brakes_ok','Freios'),('lights_ok','Luzes'),('indicators_ok','Setas'),
@@ -16,6 +14,8 @@ ITEMS = [
 def _extra_context():
     if not current_user.is_authenticated:
         return {}
+    from .enterprise19 import active_vehicle
+    from .routes import build_oil_statuses
     admins_q = User.query.filter(User.role.in_(('ADMIN','ADMIN_GLOBAL','ADMIN_BASE')), User.active.is_(True))
     all_base_admins = admins_q.order_by(User.name).all()
     manager_open_issues = []
@@ -24,9 +24,13 @@ def _extra_context():
         if current_user.is_base_admin:
             q = q.filter_by(base_code=current_user.base_code)
         manager_open_issues = q.order_by(VehicleIssue.created_at.desc()).limit(30).all()
+    v = active_vehicle()
+    active_oil = build_oil_statuses(v.id) if v and v.vehicle_type == 'MOTORCYCLE' else []
     return {
         'all_base_admins': all_base_admins,
         'manager_open_issues': manager_open_issues,
+        'active_vehicle_oil_statuses': active_oil,
+        'active_vehicle_oil_status': active_oil[0] if active_oil else None,
     }
 
 
