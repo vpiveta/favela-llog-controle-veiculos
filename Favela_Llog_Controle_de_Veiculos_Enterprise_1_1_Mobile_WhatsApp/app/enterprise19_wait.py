@@ -21,11 +21,8 @@ def _clear_pending():
 def login_with_wait():
     if current_user.is_authenticated:
         return redirect(url_for('main.dashboard'))
-
     if request.method != 'POST':
-        pending_id = session.get('pending_vehicle_use_request_id')
-        pending_user = session.get('pending_vehicle_use_user_id')
-        if pending_id and pending_user:
+        if session.get('pending_vehicle_use_request_id') and session.get('pending_vehicle_use_user_id'):
             return redirect(url_for('enterprise19_wait.vehicle_use_wait'))
         return render_template('auth/login.html', need_justification=False, plate_value='')
 
@@ -33,7 +30,6 @@ def login_with_wait():
     password = request.form.get('password') or ''
     plate_value = _plate(request.form.get('plate'))
     user = User.query.filter_by(username=username).first()
-
     if not user or not user.active or not user.check_password(password):
         _clear_pending()
         flash('Usuário ou senha inválidos.', 'danger')
@@ -54,7 +50,6 @@ def login_with_wait():
     if not vehicle or vehicle.base_code != user.base_code:
         flash('Placa não encontrada na sua base.', 'danger')
         return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
-
     if vehicle.status == 'BLOCKED':
         flash('Esta moto está bloqueada para uso. Procure o gerente da base.', 'danger')
         return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
@@ -67,10 +62,7 @@ def login_with_wait():
         return redirect(url_for('main.dashboard'))
 
     owner_name = vehicle.driver.name if vehicle.driver else 'outro motorista'
-
-    approved = VehicleUseRequest.query.filter_by(
-        requester_id=user.id, vehicle_id=vehicle.id, status='APPROVED'
-    ).order_by(VehicleUseRequest.decided_at.desc()).first()
+    approved = VehicleUseRequest.query.filter_by(requester_id=user.id, vehicle_id=vehicle.id, status='APPROVED').order_by(VehicleUseRequest.decided_at.desc()).first()
     if approved and approved.decided_at and approved.decided_at >= utc_now() - timedelta(hours=24):
         approved.status = 'USED'
         db.session.commit()
@@ -83,19 +75,11 @@ def login_with_wait():
     justification = (request.form.get('justification') or '').strip()
     if not justification:
         flash(f'A moto {vehicle.plate} está vinculada a {owner_name}. Informe a justificativa para solicitar autorização.', 'warning')
-        return render_template(
-            'auth/login.html', need_justification=True, owner_name=owner_name,
-            plate_value=plate_value, username_value=username
-        )
+        return render_template('auth/login.html', need_justification=True, owner_name=owner_name, plate_value=plate_value, username_value=username)
 
-    pending = VehicleUseRequest.query.filter_by(
-        requester_id=user.id, vehicle_id=vehicle.id, status='PENDING'
-    ).order_by(VehicleUseRequest.requested_at.desc()).first()
+    pending = VehicleUseRequest.query.filter_by(requester_id=user.id, vehicle_id=vehicle.id, status='PENDING').order_by(VehicleUseRequest.requested_at.desc()).first()
     if not pending:
-        pending = VehicleUseRequest(
-            requester_id=user.id, vehicle_id=vehicle.id, owner_driver_id=vehicle.driver_id,
-            justification=justification, base_code=user.base_code, status='PENDING'
-        )
+        pending = VehicleUseRequest(requester_id=user.id, vehicle_id=vehicle.id, owner_driver_id=vehicle.driver_id, justification=justification, base_code=user.base_code, status='PENDING')
         db.session.add(pending)
         db.session.commit()
 
@@ -125,7 +109,6 @@ def vehicle_use_wait():
 def vehicle_use_wait_status():
     if current_user.is_authenticated:
         return jsonify({'status': 'APPROVED', 'redirect': url_for('main.dashboard')})
-
     request_id = session.get('pending_vehicle_use_request_id')
     user_id = session.get('pending_vehicle_use_user_id')
     if not request_id or not user_id:
@@ -153,8 +136,15 @@ def vehicle_use_wait_status():
 
     if row.status == 'DENIED':
         return jsonify({'status': 'DENIED', 'message': 'O gerente da base não autorizou o uso desta moto.'})
-
     return jsonify({'status': 'PENDING'})
+
+
+@wait_bp.get('/aguardando-autorizacao/cancelar')
+def cancel_vehicle_use_wait():
+    _clear_pending()
+    session.pop('active_vehicle_id', None)
+    session.pop('active_vehicle_justification', None)
+    return redirect(url_for('auth.login'))
 
 
 def init_enterprise19_wait(app):
