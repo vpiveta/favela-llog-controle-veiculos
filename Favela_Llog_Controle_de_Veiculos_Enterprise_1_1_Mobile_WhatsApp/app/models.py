@@ -18,7 +18,6 @@ class User(UserMixin, db.Model):
     must_change_password = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now)
     vehicle = db.relationship('Vehicle', back_populates='driver', uselist=False)
-
     def set_password(self, password): self.password_hash = generate_password_hash(password)
     def check_password(self, password): return check_password_hash(self.password_hash, password)
     @property
@@ -56,9 +55,11 @@ class Expense(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=utc_now)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    responsible_driver_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     authorized_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False)
     created_by = db.relationship('User', foreign_keys=[created_by_id])
+    responsible_driver = db.relationship('User', foreign_keys=[responsible_driver_id])
     authorized_by = db.relationship('User', foreign_keys=[authorized_by_id])
     vehicle = db.relationship('Vehicle', back_populates='expenses')
     fuel = db.relationship('FuelDetail', back_populates='expense', uselist=False, cascade='all, delete-orphan')
@@ -126,10 +127,8 @@ class StoredFile(db.Model):
     storage_path = db.Column(db.String(600), index=True)
     storage_migrated_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
-
     @property
-    def is_in_storage(self):
-        return bool(self.storage_bucket and self.storage_path)
+    def is_in_storage(self): return bool(self.storage_bucket and self.storage_path)
     uploaded_by = db.relationship('User')
 
 class DailyChecklist(db.Model):
@@ -144,6 +143,7 @@ class DailyChecklist(db.Model):
     borrowed_vehicle = db.Column(db.Boolean, default=False, nullable=False)
     odometer = db.Column(db.Integer, nullable=False, default=0)
     borrow_reason = db.Column(db.Text)
+    attention_notes = db.Column(db.Text)
     tires_ok = db.Column(db.Boolean, nullable=False)
     brakes_ok = db.Column(db.Boolean, nullable=False)
     lights_ok = db.Column(db.Boolean, nullable=False)
@@ -171,6 +171,42 @@ class DailyChecklist(db.Model):
     deleted_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     deletion_reason = db.Column(db.Text)
     deleted_by = db.relationship('User', foreign_keys=[deleted_by_id])
+
+class VehicleUseRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
+    requester_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False, index=True)
+    owner_driver_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    justification = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='PENDING', index=True)
+    requested_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    decided_at = db.Column(db.DateTime)
+    decided_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    requester = db.relationship('User', foreign_keys=[requester_id])
+    vehicle = db.relationship('Vehicle')
+    owner_driver = db.relationship('User', foreign_keys=[owner_driver_id])
+    decided_by = db.relationship('User', foreign_keys=[decided_by_id])
+
+class VehicleIssue(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicle.id'), nullable=False, index=True)
+    checklist_id = db.Column(db.Integer, db.ForeignKey('daily_checklist.id'), nullable=False, index=True)
+    reported_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    item_code = db.Column(db.String(40), nullable=False)
+    item_label = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='OPEN', index=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    resolved_at = db.Column(db.DateTime)
+    resolved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    maintenance_expense_id = db.Column(db.Integer, db.ForeignKey('expense.id'))
+    vehicle = db.relationship('Vehicle')
+    checklist = db.relationship('DailyChecklist')
+    reported_by = db.relationship('User', foreign_keys=[reported_by_id])
+    resolved_by = db.relationship('User', foreign_keys=[resolved_by_id])
+    maintenance_expense = db.relationship('Expense')
 
 class AdminNotification(db.Model):
     id = db.Column(db.Integer, primary_key=True)
