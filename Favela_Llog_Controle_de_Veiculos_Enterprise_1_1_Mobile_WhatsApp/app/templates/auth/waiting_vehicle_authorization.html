@@ -12,7 +12,7 @@
     <small>Justificativa: {{ request_row.justification }}</small>
   </div>
   <div id="waitPending" class="wait-status pending"><span class="wait-spinner"></span><b>Solicitação enviada</b><small>Aguardando o gerente da base autorizar...</small></div>
-  <div id="waitDenied" class="wait-status denied" hidden><b>Uso não autorizado</b><small id="waitDeniedMessage">O gerente não autorizou o uso desta moto.</small><a class="btn alt" href="{{ url_for('auth.login') }}">Voltar ao login</a></div>
+  <div id="waitDenied" class="wait-status denied" hidden><b>Uso não autorizado</b><small id="waitDeniedMessage">O gerente não autorizou o uso desta moto.</small><a class="btn alt" href="{{ url_for('enterprise19_wait.cancel_vehicle_use_wait') }}">Voltar ao login</a></div>
   <small>Esta página atualiza automaticamente. Não é necessário fazer login novamente.</small>
 </section>
 <script>
@@ -21,21 +21,23 @@
   const pending=document.getElementById('waitPending');
   const denied=document.getElementById('waitDenied');
   const deniedMessage=document.getElementById('waitDeniedMessage');
+  let timer=null;
   async function check(){
     try{
       const r=await fetch(statusUrl,{cache:'no-store',headers:{'Accept':'application/json'}});
       if(!r.ok)return;
       const data=await r.json();
-      if(data.status==='APPROVED'&&data.redirect){window.location.replace(data.redirect);return;}
+      if(data.status==='APPROVED'&&data.redirect){if(timer)clearInterval(timer);window.location.replace(data.redirect);return;}
       if(data.status==='DENIED'){
+        if(timer)clearInterval(timer);
         pending.hidden=true;denied.hidden=false;
         deniedMessage.textContent=data.message||'O gerente não autorizou o uso desta moto.';
         return;
       }
-      if(data.status==='EXPIRED'&&data.redirect){window.location.replace(data.redirect);}
+      if(data.status==='EXPIRED'&&data.redirect){if(timer)clearInterval(timer);window.location.replace(data.redirect);}
     }catch(e){}
   }
-  check();setInterval(check,3000);
+  check();timer=setInterval(check,3000);
 })();
 </script>
 {% endblock %}
