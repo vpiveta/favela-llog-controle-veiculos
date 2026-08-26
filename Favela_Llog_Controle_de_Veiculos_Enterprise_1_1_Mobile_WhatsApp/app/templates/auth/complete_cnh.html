@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Cadastrar CNH · Favela Llog{% endblock %}
+{% block content %}
+<section class="login-card waiting-card">
+  <img src="{{ url_for('static', filename='img/logo.png') }}" class="login-logo">
+  <h2>Complete seu cadastro</h2>
+  <p>Antes de continuar, informe o número da sua CNH. Este cadastro será feito apenas uma vez.</p>
+  <form method="post" class="form-grid">
+    <label class="wide">Número da CNH
+      <input name="cnh_number" value="{{ cnh_value or '' }}" inputmode="numeric" maxlength="11" minlength="11" pattern="[0-9]{11}" placeholder="11 números" autocomplete="off" required autofocus>
+    </label>
+    <div class="wide notice">
+      <b>Importante</b>
+      <span>A CNH ficará vinculada ao seu usuário e será utilizada nos PDFs de checklist, abastecimento e manutenção. Você não precisará informar novamente nos próximos acessos.</span>
+    </div>
+    <button class="wide" type="submit">Salvar CNH e continuar</button>
+  </form>
+</section>
+{% endblock %}
