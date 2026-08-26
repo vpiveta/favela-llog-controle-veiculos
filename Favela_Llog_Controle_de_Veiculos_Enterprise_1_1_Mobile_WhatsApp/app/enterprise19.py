@@ -1,7 +1,7 @@
 import io
 import json
 from datetime import timedelta
-from flask import Blueprint, abort, flash, redirect, render_template, request, send_file, session, url_for
+from flask import Blueprint, abort, flash, has_request_context, redirect, render_template, request, send_file, session, url_for
 from flask_login import current_user, login_user, login_required
 from sqlalchemy import event
 from sqlalchemy.orm import Session
@@ -40,8 +40,6 @@ def active_vehicle():
 def _login_view():
     if current_user.is_authenticated:
         return redirect(url_for('main.dashboard'))
-    need_justification = False
-    owner_name = None
     plate_value = ''
     if request.method == 'POST':
         username = request.form.get('username','').strip()
@@ -50,7 +48,7 @@ def _login_view():
         user = User.query.filter_by(username=username).first()
         if not user or not user.active or not user.check_password(password):
             flash('Usuário ou senha inválidos.', 'danger')
-            return render_template('auth/login.html', need_justification=False, plate_value=plate_value)
+            return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
         if user.is_admin:
             login_user(user)
             session.pop('active_vehicle_id', None)
@@ -58,23 +56,21 @@ def _login_view():
             return redirect(url_for('main.dashboard'))
         if not plate_value:
             flash('Informe a placa da moto que será utilizada.', 'danger')
-            return render_template('auth/login.html', need_justification=False, plate_value=plate_value)
+            return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
         vehicle = Vehicle.query.filter_by(plate=plate_value, vehicle_type='MOTORCYCLE').first()
         if not vehicle or vehicle.base_code != user.base_code:
             flash('Placa não encontrada na sua base.', 'danger')
-            return render_template('auth/login.html', need_justification=False, plate_value=plate_value)
+            return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
         if vehicle.status == 'BLOCKED':
             flash('Esta moto está bloqueada para uso. Procure o gerente da base.', 'danger')
-            return render_template('auth/login.html', need_justification=False, plate_value=plate_value)
+            return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
         if not vehicle.driver_id or vehicle.driver_id == user.id:
             login_user(user)
             session['active_vehicle_id'] = vehicle.id
             session['active_vehicle_justification'] = ''
             return redirect(url_for('main.dashboard'))
         owner_name = vehicle.driver.name if vehicle.driver else 'outro motorista'
-        approved = VehicleUseRequest.query.filter_by(
-            requester_id=user.id, vehicle_id=vehicle.id, status='APPROVED'
-        ).order_by(VehicleUseRequest.decided_at.desc()).first()
+        approved = VehicleUseRequest.query.filter_by(requester_id=user.id, vehicle_id=vehicle.id, status='APPROVED').order_by(VehicleUseRequest.decided_at.desc()).first()
         if approved and approved.decided_at and approved.decided_at >= utc_now() - timedelta(hours=24):
             approved.status = 'USED'
             db.session.commit()
@@ -84,16 +80,11 @@ def _login_view():
             return redirect(url_for('main.dashboard'))
         justification = (request.form.get('justification') or '').strip()
         if not justification:
-            need_justification = True
             flash(f'A moto {vehicle.plate} está vinculada a {owner_name}. Informe a justificativa para solicitar autorização.', 'warning')
             return render_template('auth/login.html', need_justification=True, owner_name=owner_name, plate_value=plate_value, username_value=username)
         pending = VehicleUseRequest.query.filter_by(requester_id=user.id, vehicle_id=vehicle.id, status='PENDING').first()
         if not pending:
-            pending = VehicleUseRequest(
-                requester_id=user.id, vehicle_id=vehicle.id, owner_driver_id=vehicle.driver_id,
-                justification=justification, base_code=user.base_code, status='PENDING'
-            )
-            db.session.add(pending)
+            db.session.add(VehicleUseRequest(requester_id=user.id, vehicle_id=vehicle.id, owner_driver_id=vehicle.driver_id, justification=justification, base_code=user.base_code, status='PENDING'))
             db.session.commit()
         flash('Solicitação enviada ao gerente. Após a aprovação, entre novamente com a mesma placa.', 'warning')
         return render_template('auth/login.html', need_justification=True, owner_name=owner_name, plate_value=plate_value, username_value=username)
@@ -112,11 +103,7 @@ def decide_vehicle_use(req_id, decision):
     row.status = 'APPROVED' if decision == 'approve' else 'DENIED'
     row.decided_at = utc_now()
     row.decided_by_id = current_user.id
-    db.session.add(AuditLog(
-        action='VEHICLE_USE_DECISION', entity_type='VEHICLE_USE_REQUEST', entity_id=row.id,
-        description=f"Solicitação de {row.requester.name} para {row.vehicle.plate}: {row.status}.",
-        user_id=current_user.id, base_code=row.base_code
-    ))
+    db.session.add(AuditLog(action='VEHICLE_USE_DECISION', entity_type='VEHICLE_USE_REQUEST', entity_id=row.id, description=f"Solicitação de {row.requester.name} para {row.vehicle.plate}: {row.status}.", user_id=current_user.id, base_code=row.base_code))
     db.session.commit()
     flash('Solicitação atualizada.', 'success')
     return redirect(request.referrer or url_for('main.dashboard'))
@@ -125,13 +112,15 @@ def decide_vehicle_use(req_id, decision):
 @login_required
 def issue_maintenance(issue_id):
     issue = db.session.get(VehicleIssue, issue_id) or abort(404)
+    if not current_user.is_global_admin and issue.base_code != current_user.base_code:
+        abort(403)
     if issue.status != 'OPEN':
         flash('Esta pendência já foi solucionada.', 'warning')
         return redirect(url_for('main.dashboard'))
     return redirect(url_for('main.maintenance_new', vehicle_id=issue.vehicle_id, issue_id=issue.id))
 
 def _before_flush(sess, flush_context, instances):
-    if not request:
+    if not has_request_context():
         return
     for obj in list(sess.new):
         if isinstance(obj, Expense):
@@ -159,11 +148,7 @@ def _before_flush(sess, flush_context, instances):
                     attention['general_condition'] = {'label':'Estado geral','reason':reason}
             obj.attention_notes = json.dumps(attention, ensure_ascii=False) if attention else None
             for code, info in attention.items():
-                sess.add(VehicleIssue(
-                    vehicle=obj.vehicle, checklist=obj, reported_by_id=obj.driver_id,
-                    item_code=code, item_label=info['label'], description=info['reason'],
-                    base_code=obj.base_code or getattr(obj.vehicle,'base_code','SDA9')
-                ))
+                sess.add(VehicleIssue(vehicle=obj.vehicle, checklist=obj, reported_by_id=obj.driver_id, item_code=code, item_label=info['label'], description=info['reason'], base_code=obj.base_code or getattr(obj.vehicle,'base_code','SDA9')))
 
 def _selected_vehicle(prefer_active_checklist=False):
     from .routes import active_checklist_for_driver
@@ -185,29 +170,23 @@ def _context():
     if not current_user.is_authenticated:
         return {}
     v = active_vehicle()
+    all_base_motorcycles = Vehicle.query.filter_by(vehicle_type='MOTORCYCLE').order_by(Vehicle.plate).all()
     pending_requests = []
     owner_requests = []
     if current_user.is_admin:
-        pending_requests = VehicleUseRequest.query.filter_by(status='PENDING').order_by(VehicleUseRequest.requested_at.desc()).all()
+        q = VehicleUseRequest.query.filter_by(status='PENDING')
+        if current_user.is_base_admin:
+            q = q.filter_by(base_code=current_user.base_code)
+        pending_requests = q.order_by(VehicleUseRequest.requested_at.desc()).all()
     elif current_user.role == 'DRIVER':
-        owner_requests = VehicleUseRequest.query.filter(
-            VehicleUseRequest.owner_driver_id == current_user.id,
-            VehicleUseRequest.status.in_(('APPROVED','USED'))
-        ).order_by(VehicleUseRequest.requested_at.desc()).limit(3).all()
+        owner_requests = VehicleUseRequest.query.filter(VehicleUseRequest.owner_driver_id == current_user.id, VehicleUseRequest.status.in_(('APPROVED','USED'))).order_by(VehicleUseRequest.requested_at.desc()).limit(3).all()
     open_issues = VehicleIssue.query.filter_by(vehicle_id=v.id, status='OPEN').order_by(VehicleIssue.created_at.desc()).all() if v else []
     last_fuel = last_maintenance = None
     temporary = bool(v and current_user.role == 'DRIVER' and v.driver_id and v.driver_id != current_user.id)
     if temporary:
         last_fuel = Expense.query.filter_by(vehicle_id=v.id, expense_type='FUEL', is_deleted=False).order_by(Expense.expense_date.desc(), Expense.id.desc()).first()
         last_maintenance = Expense.query.filter_by(vehicle_id=v.id, expense_type='MAINTENANCE', is_deleted=False).order_by(Expense.expense_date.desc(), Expense.id.desc()).first()
-    return {
-        'active_vehicle': v, 'active_vehicle_temporary': temporary,
-        'active_vehicle_justification': session.get('active_vehicle_justification',''),
-        'active_vehicle_last_fuel': last_fuel, 'active_vehicle_last_maintenance': last_maintenance,
-        'active_vehicle_issues': open_issues, 'vehicle_use_pending': pending_requests,
-        'vehicle_owner_use_alerts': owner_requests,
-        'maintenance_issue_id': request.args.get('issue_id', type=int),
-    }
+    return {'active_vehicle': v, 'active_vehicle_temporary': temporary, 'active_vehicle_justification': session.get('active_vehicle_justification',''), 'active_vehicle_last_fuel': last_fuel, 'active_vehicle_last_maintenance': last_maintenance, 'active_vehicle_issues': open_issues, 'vehicle_use_pending': pending_requests, 'vehicle_owner_use_alerts': owner_requests, 'maintenance_issue_id': request.args.get('issue_id', type=int), 'all_base_motorcycles': all_base_motorcycles}
 
 def _money(v): return f"R$ {float(v or 0):.2f}".replace('.', ',')
 
@@ -221,11 +200,7 @@ def _pdf_response(title, rows, filename):
     for a,b in rows:
         data.append([Paragraph(str(a), styles['BodyText']), Paragraph(str(b or '-').replace('\n','<br/>'), styles['BodyText'])])
     table = Table(data, colWidths=[55*mm, 115*mm], repeatRows=1)
-    table.setStyle(TableStyle([
-        ('BACKGROUND',(0,0),(-1,0),colors.HexColor('#f4b000')),('TEXTCOLOR',(0,0),(-1,0),colors.black),
-        ('GRID',(0,0),(-1,-1),0.4,colors.HexColor('#d1d5db')),('VALIGN',(0,0),(-1,-1),'TOP'),
-        ('PADDING',(0,0),(-1,-1),6)
-    ]))
+    table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#f4b000')),('TEXTCOLOR',(0,0),(-1,0),colors.black),('GRID',(0,0),(-1,-1),0.4,colors.HexColor('#d1d5db')),('VALIGN',(0,0),(-1,-1),'TOP'),('PADDING',(0,0),(-1,-1),6)]))
     story.append(table)
     doc.build(story)
     buf.seek(0)
@@ -241,13 +216,7 @@ def checklist_pdf(checklist_id):
     item_rows = []
     for field,label in ITEMS:
         item_rows.append((label, 'OK' if getattr(c, field) else 'ATENÇÃO' + (f" - {notes.get(field,{}).get('reason')}" if field in notes else '')))
-    rows = [
-        ('Base', c.base_code), ('Tipo', 'Devolução' if c.checklist_type=='DEVOLUCAO' else 'Retirada'),
-        ('Data', c.checklist_date.strftime('%d/%m/%Y')), ('Motorista que utilizou', c.driver.name),
-        ('Responsável da moto', c.owner_driver.name if c.owner_driver else 'Sem motorista cadastrado'),
-        ('Moto', f'{c.vehicle.brand} {c.vehicle.model} - {c.vehicle.plate}'), ('KM', f'{c.odometer} km'),
-        ('Uso temporário', 'Sim' if c.borrowed_vehicle else 'Não'), ('Justificativa', c.borrow_reason or '-'),
-    ] + item_rows + [('Estado geral', c.general_condition), ('Avaria', c.damage_description if c.has_damage else 'Não informada')]
+    rows = [('Base', c.base_code), ('Tipo', 'Devolução' if c.checklist_type=='DEVOLUCAO' else 'Retirada'), ('Data', c.checklist_date.strftime('%d/%m/%Y')), ('Motorista que utilizou', c.driver.name), ('Responsável da moto', c.owner_driver.name if c.owner_driver else 'Sem motorista cadastrado'), ('Moto', f'{c.vehicle.brand} {c.vehicle.model} - {c.vehicle.plate}'), ('KM', f'{c.odometer} km'), ('Uso temporário', 'Sim' if c.borrowed_vehicle else 'Não'), ('Justificativa', c.borrow_reason or '-')] + item_rows + [('Estado geral', c.general_condition), ('Avaria', c.damage_description if c.has_damage else 'Não informada')]
     return _pdf_response('Checklist da motocicleta', rows, f'checklist-{c.vehicle.plate}-{c.id}.pdf')
 
 @enterprise19_bp.get('/expense/<int:expense_id>/pdf')
@@ -257,12 +226,7 @@ def expense_pdf(expense_id):
     if not current_user.is_admin and e.created_by_id != current_user.id and e.responsible_driver_id != current_user.id:
         abort(403)
     kind = 'Abastecimento' if e.expense_type == 'FUEL' else 'Manutenção'
-    rows = [
-        ('Base', e.base_code), ('Tipo', kind), ('Data', e.expense_date.strftime('%d/%m/%Y')),
-        ('Veículo', f'{e.vehicle.brand} {e.vehicle.model} - {e.vehicle.plate}'), ('KM', f'{e.odometer or 0} km'),
-        ('Motorista responsável', e.responsible_driver.name if e.responsible_driver else 'Sem motorista cadastrado'),
-        ('Lançado por', e.created_by.name), ('Valor', _money(e.amount))
-    ]
+    rows = [('Base', e.base_code), ('Tipo', kind), ('Data', e.expense_date.strftime('%d/%m/%Y')), ('Veículo', f'{e.vehicle.brand} {e.vehicle.model} - {e.vehicle.plate}'), ('KM', f'{e.odometer or 0} km'), ('Motorista responsável', e.responsible_driver.name if e.responsible_driver else 'Sem motorista cadastrado'), ('Lançado por', e.created_by.name), ('Valor', _money(e.amount))]
     if e.fuel:
         rows += [('Litros', str(e.fuel.liters or '-')), ('Combustível', e.fuel.fuel_type or 'Gasolina'), ('Posto', e.fuel.station or '-')]
     if e.maintenance:
