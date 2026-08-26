@@ -14,8 +14,10 @@ ITEMS = [
 def _extra_context():
     if not current_user.is_authenticated:
         return {}
+    from .enterprise18 import enterprise18_context, _oil_status
     from .enterprise19 import active_vehicle
     from .routes import build_oil_statuses
+
     admins_q = User.query.filter(User.role.in_(('ADMIN','ADMIN_GLOBAL','ADMIN_BASE')), User.active.is_(True))
     all_base_admins = admins_q.order_by(User.name).all()
     manager_open_issues = []
@@ -24,13 +26,22 @@ def _extra_context():
         if current_user.is_base_admin:
             q = q.filter_by(base_code=current_user.base_code)
         manager_open_issues = q.order_by(VehicleIssue.created_at.desc()).limit(30).all()
+
     v = active_vehicle()
     active_oil = build_oil_statuses(v.id) if v and v.vehicle_type == 'MOTORCYCLE' else []
+
+    # O alerta fixo do topo também precisa acompanhar a moto realmente usada na sessão.
+    e18_data = enterprise18_context().get('e18')
+    if e18_data and current_user.role == 'DRIVER' and v:
+        e18_data = dict(e18_data)
+        e18_data['oil'] = _oil_status(v)
+
     return {
         'all_base_admins': all_base_admins,
         'manager_open_issues': manager_open_issues,
         'active_vehicle_oil_statuses': active_oil,
         'active_vehicle_oil_status': active_oil[0] if active_oil else None,
+        'e18': e18_data,
     }
 
 
