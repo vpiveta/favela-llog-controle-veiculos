@@ -29,33 +29,42 @@ with app.app_context():
     db.session.add_all([va,vb,vo]);db.session.commit()
     va_id,vb_id,a_id,b_id=va.id,vb.id,a.id,b.id
 
-client=app.test_client()
 # Placa própria libera acesso.
-r=client.post('/login',data={'username':'motoristaa','password':'123456','plate':'ABC1D23'},follow_redirects=True)
+driver=app.test_client()
+r=driver.post('/login',data={'username':'motoristaa','password':'123456','plate':'ABC1D23'},follow_redirects=True)
 assert r.status_code==200 and 'VEÍCULO ATIVO' in r.get_data(as_text=True)
-client.get('/logout')
+driver.get('/logout')
 
 # Outra base não pode ser utilizada.
-r=client.post('/login',data={'username':'motoristaa','password':'123456','plate':'SLI1A11'},follow_redirects=True)
+r=driver.post('/login',data={'username':'motoristaa','password':'123456','plate':'SLI1A11'},follow_redirects=True)
 assert 'Placa não encontrada na sua base' in r.get_data(as_text=True)
 
-# Moto de outro motorista exige justificativa e cria solicitação.
-r=client.post('/login',data={'username':'motoristaa','password':'123456','plate':'XYZ9K88'},follow_redirects=True)
+# Moto de outro motorista exige justificativa e entra em tela de aguarde.
+r=driver.post('/login',data={'username':'motoristaa','password':'123456','plate':'XYZ9K88'},follow_redirects=True)
 assert 'Informe a justificativa' in r.get_data(as_text=True)
-r=client.post('/login',data={'username':'motoristaa','password':'123456','plate':'XYZ9K88','justification':'Moto titular em manutenção'},follow_redirects=True)
-assert 'Solicitação enviada ao gerente' in r.get_data(as_text=True)
+r=driver.post('/login',data={'username':'motoristaa','password':'123456','plate':'XYZ9K88','justification':'Moto titular em manutenção'},follow_redirects=True)
+text=r.get_data(as_text=True)
+assert 'Aguardando autorização' in text and 'Aguardando o gerente da base autorizar' in text
 with app.app_context():
     req=VehicleUseRequest.query.filter_by(requester_id=a_id,vehicle_id=vb_id,status='PENDING').first();assert req
     req_id=req.id
 
-# Gerente aprova.
-r=client.post('/login',data={'username':'gerente','password':'123456'},follow_redirects=True)
-assert r.status_code==200
-r=client.post(f'/admin/vehicle-use/{req_id}/approve',follow_redirects=True);assert r.status_code==200
-client.get('/logout')
+# Enquanto pendente, motorista continua bloqueado e não recebe sessão autenticada.
+r=driver.get('/aguardando-autorizacao/status')
+assert r.get_json()['status']=='PENDING'
+r=driver.get('/')
+assert r.status_code in (302,401)
 
-# Novo login com a placa aprovada libera uso temporário.
-r=client.post('/login',data={'username':'motoristaa','password':'123456','plate':'XYZ9K88'},follow_redirects=True)
+# Gerente aprova em outra sessão.
+manager_client=app.test_client()
+r=manager_client.post('/login',data={'username':'gerente','password':'123456'},follow_redirects=True)
+assert r.status_code==200
+r=manager_client.post(f'/admin/vehicle-use/{req_id}/approve',follow_redirects=True);assert r.status_code==200
+
+# A tela do motorista detecta aprovação e libera automaticamente, sem novo login.
+r=driver.get('/aguardando-autorizacao/status')
+data=r.get_json();assert data['status']=='APPROVED' and data.get('redirect')
+r=driver.get(data['redirect'],follow_redirects=True)
 text=r.get_data(as_text=True)
 assert 'Uso temporário autorizado' in text and 'XYZ9K88' in text
 
@@ -73,5 +82,19 @@ with app.app_context():
     issue=VehicleIssue.query.filter_by(checklist_id=cid,item_code='tires_ok',status='OPEN').first();assert issue and 'desgaste' in issue.description
 
 # PDF do checklist abre.
-r=client.get(f'/checklist/{cid}/pdf');assert r.status_code==200 and r.mimetype=='application/pdf' and len(r.data)>500
+r=driver.get(f'/checklist/{cid}/pdf');assert r.status_code==200 and r.mimetype=='application/pdf' and len(r.data)>500
+
+# Recusa não libera acesso.
+driver2=app.test_client()
+r=driver2.post('/login',data={'username':'motoristaa','password':'123456','plate':'XYZ9K88','justification':'Segundo teste'},follow_redirects=True)
+# Como a aprovação anterior já foi consumida (USED), cria nova pendência.
+with app.app_context():
+    denied_req=VehicleUseRequest.query.filter_by(requester_id=a_id,vehicle_id=vb_id,status='PENDING').order_by(VehicleUseRequest.id.desc()).first();assert denied_req
+    denied_id=denied_req.id
+manager_client.post(f'/admin/vehicle-use/{denied_id}/deny',follow_redirects=True)
+r=driver2.get('/aguardando-autorizacao/status')
+assert r.get_json()['status']=='DENIED'
+r=driver2.get('/')
+assert r.status_code in (302,401)
+
 print('ENTERPRISE 1.9: homologacao automatica aprovada')
