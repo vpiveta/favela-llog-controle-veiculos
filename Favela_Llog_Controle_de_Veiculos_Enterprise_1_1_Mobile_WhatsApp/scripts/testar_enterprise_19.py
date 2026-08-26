@@ -6,6 +6,7 @@ os.environ.setdefault('DATABASE_URL', 'sqlite:////tmp/favela_llog_enterprise19.d
 
 from app import create_app
 from app.models import db, User, Vehicle, VehicleUseRequest, VehicleIssue, DailyChecklist
+from app.enterprise19_wait import DriverDocument
 
 DB_PATH = Path('/tmp/favela_llog_enterprise19.db')
 if DB_PATH.exists(): DB_PATH.unlink()
@@ -29,10 +30,21 @@ with app.app_context():
     db.session.add_all([va,vb,vo]);db.session.commit()
     va_id,vb_id,a_id,b_id=va.id,vb.id,a.id,b.id
 
-# Placa própria libera acesso.
+# Primeiro acesso do motorista exige CNH somente uma vez.
 driver=app.test_client()
 r=driver.post('/login',data={'username':'motoristaa','password':'123456','plate':'ABC1D23'},follow_redirects=True)
-assert r.status_code==200 and 'VEÍCULO ATIVO' in r.get_data(as_text=True)
+text=r.get_data(as_text=True)
+assert r.status_code==200 and 'Complete seu cadastro' in text and 'Número da CNH' in text
+r=driver.post('/meu-cadastro/cnh',data={'cnh_number':'12345678901'},follow_redirects=True)
+text=r.get_data(as_text=True)
+assert r.status_code==200 and 'VEÍCULO ATIVO' in text
+with app.app_context():
+    doc=DriverDocument.query.filter_by(user_id=a_id).first();assert doc and doc.cnh_number=='12345678901'
+driver.get('/logout')
+
+# Segundo acesso não pede CNH novamente.
+r=driver.post('/login',data={'username':'motoristaa','password':'123456','plate':'ABC1D23'},follow_redirects=True)
+assert 'Complete seu cadastro' not in r.get_data(as_text=True) and 'VEÍCULO ATIVO' in r.get_data(as_text=True)
 driver.get('/logout')
 
 # Outra base não pode ser utilizada.
@@ -81,13 +93,12 @@ with app.app_context():
         db.session.add(c);db.session.commit();cid=c.id
     issue=VehicleIssue.query.filter_by(checklist_id=cid,item_code='tires_ok',status='OPEN').first();assert issue and 'desgaste' in issue.description
 
-# PDF do checklist abre.
+# PDF do checklist abre com o novo documento do motorista disponível no perfil.
 r=driver.get(f'/checklist/{cid}/pdf');assert r.status_code==200 and r.mimetype=='application/pdf' and len(r.data)>500
 
 # Recusa não libera acesso.
 driver2=app.test_client()
 r=driver2.post('/login',data={'username':'motoristaa','password':'123456','plate':'XYZ9K88','justification':'Segundo teste'},follow_redirects=True)
-# Como a aprovação anterior já foi consumida (USED), cria nova pendência.
 with app.app_context():
     denied_req=VehicleUseRequest.query.filter_by(requester_id=a_id,vehicle_id=vb_id,status='PENDING').order_by(VehicleUseRequest.id.desc()).first();assert denied_req
     denied_id=denied_req.id
