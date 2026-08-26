@@ -147,8 +147,10 @@ def _before_flush(sess, flush_context, instances):
                 if reason:
                     attention['general_condition'] = {'label':'Estado geral','reason':reason}
             obj.attention_notes = json.dumps(attention, ensure_ascii=False) if attention else None
+            vehicle = obj.vehicle or (db.session.get(Vehicle, obj.vehicle_id) if obj.vehicle_id else None)
+            base_code = obj.base_code or getattr(vehicle, 'base_code', None) or 'SDA9'
             for code, info in attention.items():
-                sess.add(VehicleIssue(vehicle=obj.vehicle, checklist=obj, reported_by_id=obj.driver_id, item_code=code, item_label=info['label'], description=info['reason'], base_code=obj.base_code or getattr(obj.vehicle,'base_code','SDA9')))
+                sess.add(VehicleIssue(vehicle_id=obj.vehicle_id, checklist=obj, reported_by_id=obj.driver_id, item_code=code, item_label=info['label'], description=info['reason'], base_code=base_code))
 
 def _selected_vehicle(prefer_active_checklist=False):
     from .routes import active_checklist_for_driver
