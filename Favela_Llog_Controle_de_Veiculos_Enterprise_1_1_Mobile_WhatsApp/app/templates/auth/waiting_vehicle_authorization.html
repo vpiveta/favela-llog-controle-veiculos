@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Aguardando autorização · Favela Llog{% endblock %}
+{% block content %}
+<section class="login-card waiting-card">
+  <img src="{{ url_for('static', filename='img/logo.png') }}" class="login-logo">
+  <h2>Aguardando autorização</h2>
+  <p>O acesso ao sistema ficará bloqueado até o gerente da base decidir.</p>
+  <div class="waiting-vehicle-box">
+    <strong>{{ request_row.vehicle.plate }} · {{ request_row.vehicle.brand }} {{ request_row.vehicle.model }}</strong>
+    <span>Responsável: {{ request_row.owner_driver.name if request_row.owner_driver else 'Sem motorista cadastrado' }}</span>
+    <span>Solicitante: {{ request_row.requester.name }}</span>
+    <small>Justificativa: {{ request_row.justification }}</small>
+  </div>
+  <div id="waitPending" class="wait-status pending"><span class="wait-spinner"></span><b>Solicitação enviada</b><small>Aguardando o gerente da base autorizar...</small></div>
+  <div id="waitDenied" class="wait-status denied" hidden><b>Uso não autorizado</b><small id="waitDeniedMessage">O gerente não autorizou o uso desta moto.</small><a class="btn alt" href="{{ url_for('auth.login') }}">Voltar ao login</a></div>
+  <small>Esta página atualiza automaticamente. Não é necessário fazer login novamente.</small>
+</section>
+<script>
+(function(){
+  const statusUrl={{ url_for('enterprise19_wait.vehicle_use_wait_status')|tojson }};
+  const pending=document.getElementById('waitPending');
+  const denied=document.getElementById('waitDenied');
+  const deniedMessage=document.getElementById('waitDeniedMessage');
+  async function check(){
+    try{
+      const r=await fetch(statusUrl,{cache:'no-store',headers:{'Accept':'application/json'}});
+      if(!r.ok)return;
+      const data=await r.json();
+      if(data.status==='APPROVED'&&data.redirect){window.location.replace(data.redirect);return;}
+      if(data.status==='DENIED'){
+        pending.hidden=true;denied.hidden=false;
+        deniedMessage.textContent=data.message||'O gerente não autorizou o uso desta moto.';
+        return;
+      }
+      if(data.status==='EXPIRED'&&data.redirect){window.location.replace(data.redirect);}
+    }catch(e){}
+  }
+  check();setInterval(check,3000);
+})();
+</script>
+{% endblock %}
