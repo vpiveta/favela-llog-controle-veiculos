@@ -50,6 +50,8 @@ def create_app():
     init_adjustments(app)
     from .enterprise19 import init_enterprise19
     init_enterprise19(app)
+    from .enterprise19_extra import init_enterprise19_extra
+    init_enterprise19_extra(app)
     from .cli import register_cli
     register_cli(app)
     with app.app_context():
@@ -85,7 +87,10 @@ def create_app():
                 db.session.execute(text(f"UPDATE {table_sql} SET base_code = 'SDA9' WHERE base_code IS NULL OR base_code = ''"))
             db.session.execute(text("UPDATE vehicle SET vehicle_type = 'MOTORCYCLE' WHERE vehicle_type IS NULL OR vehicle_type = ''"))
             db.session.execute(text("UPDATE expense SET asset_type = 'MOTORCYCLE' WHERE asset_type IS NULL OR asset_type = ''"))
-            db.session.execute(text("UPDATE expense SET responsible_driver_id = vehicle.driver_id FROM vehicle WHERE expense.vehicle_id = vehicle.id AND expense.responsible_driver_id IS NULL"))
+            try:
+                db.session.execute(text("UPDATE expense SET responsible_driver_id = vehicle.driver_id FROM vehicle WHERE expense.vehicle_id = vehicle.id AND expense.responsible_driver_id IS NULL"))
+            except Exception:
+                db.session.rollback()
             db.session.commit()
         except Exception:
             db.session.rollback()
