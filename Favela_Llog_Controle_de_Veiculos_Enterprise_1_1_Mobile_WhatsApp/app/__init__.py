@@ -54,6 +54,8 @@ def create_app():
     init_enterprise19_extra(app)
     from .enterprise19_history import init_enterprise19_history
     init_enterprise19_history(app)
+    from .enterprise19_wait import init_enterprise19_wait
+    init_enterprise19_wait(app)
     from .cli import register_cli
     register_cli(app)
     with app.app_context():
