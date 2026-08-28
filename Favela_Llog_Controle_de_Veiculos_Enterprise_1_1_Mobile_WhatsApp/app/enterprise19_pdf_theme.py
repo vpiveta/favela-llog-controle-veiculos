@@ -2,7 +2,7 @@ import io
 from pathlib import Path
 
 from flask import send_file
-from PIL import Image
+from PIL import Image, ImageChops
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
@@ -18,35 +18,38 @@ PANEL = colors.HexColor('#0B1012')
 WHITE = colors.HexColor('#F7FAFC')
 AMBER = colors.HexColor('#FFB020')
 
-# Usa a arte grande que já faz parte do sistema. A versão anterior usava uma
-# miniatura extremamente comprimida, por isso o fundo ficava pixelado/distorcido.
+# A arte original do sistema tem resolução suficiente para A4. A versão
+# anterior do PDF usava uma miniatura comprimida e ainda a esticava.
 BACKGROUND_PATH = Path(__file__).resolve().parent / 'static' / 'img' / 'background.png'
 _BACKGROUND_READER = None
 
 
 def _teal_version(image):
-    """Converte somente tons quentes da identidade antiga para turquesa.
+    """Converte a identidade quente da arte antiga para turquesa sem deformá-la.
 
-    Preto, cinza, branco, favela e textura permanecem intactos. Se a arte já
-    estiver em turquesa, praticamente nenhum pixel entra na regra e ela é
-    preservada como está.
+    A seleção é feita no espaço HSV: somente pixels realmente coloridos em tons
+    quentes são alterados. Preto, cinza, branco, textura, prédios e lettering
+    permanecem intactos. O brilho original é preservado, mantendo profundidade.
     """
-    image = image.convert('RGBA')
-    pixels = image.load()
-    width, height = image.size
+    rgba = image.convert('RGBA')
+    alpha = rgba.getchannel('A')
+    hsv = rgba.convert('RGB').convert('HSV')
+    hue, saturation, value = hsv.split()
 
-    for y in range(height):
-        for x in range(width):
-            r, g, b, a = pixels[x, y]
-            # Detecta laranja/amarelo saturado sem afetar branco/cinza/preto.
-            if a and r > 115 and g > 45 and b < 135 and r > g * 1.08:
-                brightness = max(r, g, b) / 255.0
-                # Paleta baseada na arte turquesa enviada pelo usuário.
-                nr = int(18 * brightness)
-                ng = int(210 * brightness)
-                nb = int(216 * brightness)
-                pixels[x, y] = (nr, ng, nb, a)
-    return image
+    # Tons quentes da arte antiga (vermelho/laranja/amarelo) + saturação mínima.
+    warm_mask = hue.point(lambda h: 255 if (h < 45 or h > 245) else 0)
+    saturation_mask = saturation.point(lambda s: 255 if s > 35 else 0)
+    mask = ImageChops.multiply(warm_mask, saturation_mask)
+
+    # Cyan/turquesa em HSV. Mantemos o canal value para conservar luz/sombra.
+    teal_hue = Image.new('L', rgba.size, 128)
+    boosted_saturation = saturation.point(lambda s: max(s, 150))
+    hue = Image.composite(teal_hue, hue, mask)
+    saturation = Image.composite(boosted_saturation, saturation, mask)
+
+    result = Image.merge('HSV', (hue, saturation, value)).convert('RGBA')
+    result.putalpha(alpha)
+    return result
 
 
 def _background_reader():
@@ -56,8 +59,7 @@ def _background_reader():
     if not BACKGROUND_PATH.exists():
         return None
 
-    image = Image.open(BACKGROUND_PATH)
-    image = _teal_version(image)
+    image = _teal_version(Image.open(BACKGROUND_PATH))
     buf = io.BytesIO()
     image.save(buf, format='PNG', optimize=True)
     buf.seek(0)
@@ -66,7 +68,7 @@ def _background_reader():
 
 
 def _draw_background_proportional(canvas, bg, page_width, page_height):
-    """Preenche o A4 sem nunca esticar a imagem."""
+    """Preenche o A4 mantendo rigorosamente a proporção da arte."""
     img_width, img_height = bg.getSize()
     scale = max(page_width / float(img_width), page_height / float(img_height))
     draw_width = img_width * scale
@@ -85,7 +87,7 @@ def _draw_background_proportional(canvas, bg, page_width, page_height):
 
 
 def _favela_background(canvas, doc):
-    """Fundo Favela Llog em alta resolução, sem deformar a proporção original."""
+    """Fundo Favela Llog em alta resolução, sem alongar ou achatar a imagem."""
     w, h = A4
     canvas.saveState()
     bg = _background_reader()
@@ -95,7 +97,7 @@ def _favela_background(canvas, doc):
         canvas.setFillColor(BLACK)
         canvas.rect(0, 0, w, h, fill=1, stroke=0)
 
-    # Área de leitura apenas no centro, preservando logo e comunidade.
+    # Área de leitura somente no centro; logo, coroa, favela e parede ficam livres.
     canvas.setFillColor(PANEL)
     canvas.setFillAlpha(0.76)
     canvas.roundRect(20 * mm, 67 * mm, w - 40 * mm, h - 122 * mm, 3.5 * mm, fill=1, stroke=0)
