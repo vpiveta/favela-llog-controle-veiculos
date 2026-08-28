@@ -56,6 +56,8 @@ def create_app():
     init_enterprise19_history(app)
     from .enterprise19_wait import init_enterprise19_wait
     init_enterprise19_wait(app)
+    from .performance import init_performance
+    init_performance(app)
     from .cli import register_cli
     register_cli(app)
     with app.app_context():
@@ -93,6 +95,8 @@ def create_app():
             db.session.execute(text("UPDATE expense SET asset_type = 'MOTORCYCLE' WHERE asset_type IS NULL OR asset_type = ''"))
             db.session.execute(text("UPDATE expense SET responsible_driver_id = (SELECT vehicle.driver_id FROM vehicle WHERE vehicle.id = expense.vehicle_id) WHERE responsible_driver_id IS NULL"))
             db.session.commit()
+            from .performance import _install_indexes_once
+            _install_indexes_once()
         except Exception:
             db.session.rollback()
             app.logger.exception('Falha ao aplicar migracoes leves do banco')
