@@ -56,6 +56,8 @@ def create_app():
     init_enterprise19_history(app)
     from .enterprise19_wait import init_enterprise19_wait
     init_enterprise19_wait(app)
+    from .enterprise19_pdf_theme import init_pdf_theme
+    init_pdf_theme(app)
     from .performance import init_performance
     init_performance(app)
     from .cli import register_cli
