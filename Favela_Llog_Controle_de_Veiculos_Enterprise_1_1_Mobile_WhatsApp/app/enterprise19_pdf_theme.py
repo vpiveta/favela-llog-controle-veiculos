@@ -1,4 +1,6 @@
 import io
+from pathlib import Path
+
 from flask import send_file
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -7,65 +9,43 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
-TURQUOISE = colors.HexColor('#16D4D8')
+TURQUOISE = colors.HexColor('#17D8DF')
 TURQUOISE_DARK = colors.HexColor('#079BA2')
 BLACK = colors.HexColor('#070A0B')
-PANEL = colors.HexColor('#101719')
-PANEL_2 = colors.HexColor('#162125')
+PANEL = colors.HexColor('#0B1012')
+PANEL_ALT = colors.HexColor('#11191C')
 WHITE = colors.HexColor('#F7FAFC')
 MUTED = colors.HexColor('#B7C5C9')
+AMBER = colors.HexColor('#FFB020')
+BACKGROUND_PATH = Path(__file__).resolve().parent / 'static' / 'img' / 'pdf_background_favela.jpg'
 
 
 def _favela_background(canvas, doc):
-    """Fundo inspirado no padrão oficial enviado: preto texturizado + bordas turquesa."""
+    """Usa a arte oficial enviada como fundo integral de todas as páginas."""
     w, h = A4
     canvas.saveState()
-    canvas.setFillColor(BLACK)
-    canvas.rect(0, 0, w, h, fill=1, stroke=0)
+    if BACKGROUND_PATH.exists():
+        canvas.drawImage(
+            str(BACKGROUND_PATH), 0, 0, width=w, height=h,
+            preserveAspectRatio=False, mask='auto'
+        )
+    else:
+        canvas.setFillColor(BLACK)
+        canvas.rect(0, 0, w, h, fill=1, stroke=0)
 
-    # Faixas/pinceladas turquesa irregulares nas bordas.
-    canvas.setFillColor(TURQUOISE)
-    canvas.setFillAlpha(0.92)
-    canvas.setStrokeColor(TURQUOISE)
-    canvas.setLineWidth(5)
-    canvas.line(0, h-5*mm, 33*mm, h-22*mm)
-    canvas.line(0, h-15*mm, 18*mm, h-50*mm)
-    canvas.line(w, h-2*mm, w-30*mm, h-24*mm)
-    canvas.line(w, h-18*mm, w-16*mm, h-60*mm)
-    canvas.line(0, 3*mm, 32*mm, 26*mm)
-    canvas.line(0, 15*mm, 18*mm, 48*mm)
-    canvas.line(w, 3*mm, w-34*mm, 25*mm)
-    canvas.line(w, 17*mm, w-18*mm, 52*mm)
-
-    # Marca d'água lateral, lembrando a coroa/grafite do padrão.
-    canvas.setFillAlpha(0.10)
-    canvas.setFont('Helvetica-Bold', 72)
-    canvas.drawRightString(w-8*mm, h-78*mm, 'M')
-    canvas.setFillAlpha(1)
-
-    # Cabeçalho Favela Llog.
-    canvas.setFillColor(WHITE)
-    canvas.setFont('Helvetica-BoldOblique', 21)
-    canvas.drawString(22*mm, h-24*mm, 'FAVELA')
-    canvas.setFillColor(TURQUOISE)
-    canvas.setFont('Helvetica-BoldOblique', 19)
-    canvas.drawString(31*mm, h-32*mm, 'LLOG')
-    canvas.setStrokeColor(WHITE)
-    canvas.setLineWidth(1.2)
-    canvas.line(22*mm, h-35*mm, 61*mm, h-35*mm)
-
-    # Área central escura para leitura dos dados.
+    # A imagem já contém logo, favela, coroa e pinceladas. Apenas criamos uma
+    # camada de leitura sobre a área central, sem cobrir a identidade visual.
     canvas.setFillColor(PANEL)
-    canvas.setFillAlpha(0.94)
-    canvas.roundRect(18*mm, 28*mm, w-36*mm, h-72*mm, 5*mm, fill=1, stroke=0)
+    canvas.setFillAlpha(0.86)
+    canvas.roundRect(18*mm, 26*mm, w-36*mm, h-79*mm, 4*mm, fill=1, stroke=0)
     canvas.setFillAlpha(1)
     canvas.setStrokeColor(TURQUOISE_DARK)
     canvas.setLineWidth(0.8)
-    canvas.roundRect(18*mm, 28*mm, w-36*mm, h-72*mm, 5*mm, fill=0, stroke=1)
+    canvas.roundRect(18*mm, 26*mm, w-36*mm, h-79*mm, 4*mm, fill=0, stroke=1)
 
     canvas.setFillColor(MUTED)
-    canvas.setFont('Helvetica', 7.2)
-    canvas.drawCentredString(w/2, 15*mm, f'FAVELA LLOG • CONTROLE DE VEÍCULOS • Página {doc.page}')
+    canvas.setFont('Helvetica', 7)
+    canvas.drawCentredString(w/2, 14*mm, f'FAVELA LLOG - CONTROLE DE VEÍCULOS - Página {doc.page}')
     canvas.restoreState()
 
 
@@ -73,63 +53,87 @@ def themed_pdf_response(title, rows, filename):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
-        rightMargin=25*mm, leftMargin=25*mm,
-        topMargin=49*mm, bottomMargin=35*mm,
+        rightMargin=24*mm, leftMargin=24*mm,
+        topMargin=52*mm, bottomMargin=33*mm,
     )
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
-        'FavelaTitle', parent=styles['Title'], alignment=TA_CENTER,
-        textColor=WHITE, fontName='Helvetica-Bold', fontSize=17, leading=20,
-        spaceAfter=2*mm,
+        'FavelaTitle', parent=styles['Heading1'],
+        fontName='Helvetica-Bold', fontSize=17, leading=20,
+        textColor=WHITE, alignment=TA_CENTER, spaceAfter=2*mm,
     )
     subtitle_style = ParagraphStyle(
-        'FavelaSubtitle', parent=styles['Normal'], alignment=TA_CENTER,
-        textColor=TURQUOISE, fontName='Helvetica-Bold', fontSize=8.5,
-        leading=11, spaceAfter=5*mm,
+        'FavelaSubtitle', parent=styles['BodyText'],
+        fontName='Helvetica-Bold', fontSize=8.5, leading=11,
+        textColor=TURQUOISE, alignment=TA_CENTER, spaceAfter=6*mm,
     )
     label_style = ParagraphStyle(
-        'FavelaLabel', parent=styles['BodyText'], textColor=TURQUOISE,
-        fontName='Helvetica-Bold', fontSize=8.2, leading=10.5,
+        'FavelaLabel', parent=styles['BodyText'],
+        fontName='Helvetica-Bold', fontSize=8.4, leading=10.5,
+        textColor=TURQUOISE,
     )
     value_style = ParagraphStyle(
-        'FavelaValue', parent=styles['BodyText'], textColor=WHITE,
-        fontName='Helvetica', fontSize=8.2, leading=10.5,
+        'FavelaValue', parent=styles['BodyText'],
+        fontName='Helvetica', fontSize=8.5, leading=10.5,
+        textColor=WHITE,
     )
-    foot_style = ParagraphStyle(
-        'FavelaFoot', parent=styles['Normal'], alignment=TA_CENTER,
-        textColor=MUTED, fontSize=7.2, leading=9,
+    attention_style = ParagraphStyle(
+        'FavelaAttention', parent=value_style,
+        textColor=AMBER, fontName='Helvetica-Bold',
     )
 
     story = [
-        Paragraph(title.upper(), title_style),
-        Paragraph('REGISTRO OPERACIONAL • FAVELA LLOG', subtitle_style),
+        Paragraph(str(title).upper(), title_style),
+        Paragraph('CONTROLE DE VEÍCULOS', subtitle_style),
     ]
+
     data = []
     for label, value in rows:
-        label = str(label).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        value = str(value if value not in (None, '') else '-').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br/>')
-        data.append([Paragraph(label, label_style), Paragraph(value, value_style)])
+        label_text = str(label or '-')
+        value_text = str(value or '-').replace('\n', '<br/>')
+        value_paragraph_style = attention_style if ('ATENÇÃO' in value_text.upper() or 'VENCIDA' in value_text.upper()) else value_style
+        data.append([
+            Paragraph(label_text, label_style),
+            Paragraph(value_text, value_paragraph_style),
+        ])
 
-    table = Table(data, colWidths=[47*mm, 105*mm], hAlign='CENTER')
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), PANEL_2),
-        ('BOX', (0,0), (-1,-1), 0.75, TURQUOISE_DARK),
-        ('INNERGRID', (0,0), (-1,-1), 0.25, colors.HexColor('#2A4146')),
+    table = Table(data, colWidths=[50*mm, 111*mm], hAlign='CENTER')
+    commands = [
+        ('BACKGROUND', (0,0), (-1,-1), colors.Color(0.035,0.055,0.06, alpha=0.76)),
+        ('ROWBACKGROUNDS', (0,0), (-1,-1), [colors.Color(0.035,0.055,0.06, alpha=0.78), colors.Color(0.055,0.085,0.095, alpha=0.78)]),
+        ('GRID', (0,0), (-1,-1), 0.35, colors.HexColor('#304B50')),
+        ('BOX', (0,0), (-1,-1), 0.8, TURQUOISE_DARK),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('LEFTPADDING', (0,0), (-1,-1), 7),
         ('RIGHTPADDING', (0,0), (-1,-1), 7),
         ('TOPPADDING', (0,0), (-1,-1), 5.5),
         ('BOTTOMPADDING', (0,0), (-1,-1), 5.5),
-    ]))
+    ]
+
+    # Destaque visual para os blocos mais importantes do documento.
+    for idx, (label, value) in enumerate(rows):
+        text = f'{label} {value}'.upper()
+        if label in ('Base', 'Tipo', 'Data', 'Veículo', 'Moto', 'Motorista que utilizou', 'Motorista responsável', 'CNH do motorista', 'CNH do responsável'):
+            commands.append(('LINEBELOW', (0,idx), (-1,idx), 0.65, TURQUOISE_DARK))
+        if 'ATENÇÃO' in text or 'VENCIDA' in text:
+            commands.append(('BOX', (0,idx), (-1,idx), 0.8, AMBER))
+
+    table.setStyle(TableStyle(commands))
     story.append(table)
-    story.append(Spacer(1, 4*mm))
-    story.append(Paragraph('Documento gerado automaticamente pelo sistema Favela Llog.', foot_style))
+    story.append(Spacer(1, 5*mm))
+    story.append(Paragraph('SONHOS, DISCIPLINA & FÉ', ParagraphStyle(
+        'FavelaFooter', parent=styles['BodyText'],
+        fontName='Helvetica-Bold', fontSize=7.8,
+        textColor=TURQUOISE, alignment=TA_CENTER,
+    )))
+
     doc.build(story, onFirstPage=_favela_background, onLaterPages=_favela_background)
     buf.seek(0)
     return send_file(buf, mimetype='application/pdf', as_attachment=False, download_name=filename)
 
 
 def init_pdf_theme(app):
-    # Os endpoints existentes continuam iguais; trocamos apenas o motor visual do PDF.
+    # O enterprise19_wait é registrado antes deste módulo e aponta os endpoints
+    # para funções próprias com CNH. Substituímos somente o motor visual usado por elas.
     from . import enterprise19
     enterprise19._pdf_response = themed_pdf_response
