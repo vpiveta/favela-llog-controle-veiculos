@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     repo: https://github.com/vpiveta/favela-llog-controle-veiculos
-    branch: enterprise-1-8-multibase-profissional
+    branch: enterprise-2-0-multibase-diretoria
     rootDir: Favela_Llog_Controle_de_Veiculos_Enterprise_1_1_Mobile_WhatsApp
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn wsgi:app
