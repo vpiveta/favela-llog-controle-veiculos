@@ -16,9 +16,9 @@ services:
         generateValue: true
       - key: APP_TIMEZONE
         value: America/Sao_Paulo
-      - key: ONLINE_URL
-        sync: false
-      - key: WHATSAPP_TOKEN
-        sync: false
-      - key: WHATSAPP_PHONE_NUMBER_ID
+      - key: HOMOLOG_ADMIN_USER
+        value: piveta
+      - key: HOMOLOG_ADMIN_NAME
+        value: Victor Piveta
+      - key: HOMOLOG_ADMIN_PASSWORD
         sync: false
