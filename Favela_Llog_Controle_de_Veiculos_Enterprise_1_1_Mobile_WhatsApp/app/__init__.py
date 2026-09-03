@@ -60,6 +60,8 @@ def create_app():
     init_pdf_theme(app)
     from .performance import init_performance
     init_performance(app)
+    from .enterprise20 import init_enterprise20
+    init_enterprise20(app)
     from .cli import register_cli
     register_cli(app)
     with app.app_context():
@@ -118,5 +120,12 @@ def create_app():
                 )
                 user.set_password(homolog_password)
                 db.session.add(user)
+                db.session.commit()
+            elif os.getenv('HOMOLOG_RESET_PASSWORD', '1') == '1':
+                user.set_password(homolog_password)
+                user.active = True
+                user.must_change_password = False
+                if user.role not in ('ADMIN', 'ADMIN_GLOBAL'):
+                    user.role = 'ADMIN_GLOBAL'
                 db.session.commit()
     return app
