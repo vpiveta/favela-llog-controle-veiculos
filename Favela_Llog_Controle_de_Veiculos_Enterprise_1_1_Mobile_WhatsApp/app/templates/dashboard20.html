@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% block title %}Gestão de Frota · Favela Llog{% endblock %}
+{% block content %}
+<div class="e20-shell">
+  <header class="e20-hero">
+    <div>
+      <span class="e20-kicker">FAVELA LLOG · GESTÃO DE FROTA</span>
+      <h2>Controle de custos</h2>
+      <p>Visão financeira e operacional consolidada por base, mês e veículo.</p>
+    </div>
+    <form class="e20-filters" method="get">
+      {% if is_global %}
+      <label>Base
+        <select name="base" onchange="this.form.submit()">
+          <option value="ALL" {{'selected' if base_code=='ALL'}}>Todas as bases</option>
+          {% for b in bases %}<option value="{{b}}" {{'selected' if base_code==b}}>{{b}}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <label>Mês
+        <input type="month" name="month" value="{{month}}" onchange="this.form.submit()">
+      </label>
+    </form>
+  </header>
+
+  <section class="e20-contextbar">
+    <div><small>PERÍODO</small><strong>{{month_label}}</strong></div>
+    <div><small>ESCOPO</small><strong>{{'Todas as bases' if base_code=='ALL' else base_code}}</strong></div>
+    <div><small>FROTA</small><strong>{{vehicles|length}} veículos</strong></div>
+  </section>
+
+  <section class="e20-kpis">
+    <a class="e20-kpi primary" href="{{url_for('enterprise20.costs',month=month,base=base_code)}}">
+      <span>Gasto do mês</span><strong>R$ {{'%.2f'|format(total)|replace('.',',')}}</strong>
+      <small>{% if delta is not none %}{{'+' if delta>0 else ''}}{{delta}}% vs mês anterior{% else %}Sem base comparativa{% endif %}</small>
+    </a>
+    <a class="e20-kpi" href="{{url_for('enterprise20.costs',month=month,base=base_code)}}">
+      <span>Mês anterior</span><strong>R$ {{'%.2f'|format(previous_total)|replace('.',',')}}</strong><small>Comparativo financeiro</small>
+    </a>
+    <a class="e20-kpi" href="{{url_for('enterprise20.costs',month=month,base=base_code,category='FUEL')}}">
+      <span>Abastecimento</span><strong>R$ {{'%.2f'|format(fuel)|replace('.',',')}}</strong><small>Clique para detalhar</small>
+    </a>
+    <a class="e20-kpi" href="{{url_for('enterprise20.costs',month=month,base=base_code,category='MAINTENANCE')}}">
+      <span>Manutenção</span><strong>R$ {{'%.2f'|format(maintenance)|replace('.',',')}}</strong><small>Clique para detalhar</small>
+    </a>
+    <a class="e20-kpi" href="{{url_for('enterprise20.costs',month=month,base=base_code)}}">
+      <span>Custo médio / veículo</span><strong>R$ {{'%.2f'|format(avg_vehicle)|replace('.',',')}}</strong><small>{{vehicles|length}} veículos no escopo</small>
+    </a>
+    <a class="e20-kpi" href="{{url_for('main.vehicles')}}">
+      <span>Frota ativa</span><strong>{{active_count}}</strong><small>{{maintenance_count}} em manutenção</small>
+    </a>
+    <a class="e20-kpi" href="{{url_for('main.admin_checklists') if current_user.is_admin else url_for('main.checklist_history')}}">
+      <span>Checklists hoje</span><strong>{{checklist_today}}</strong><small>Histórico operacional</small>
+    </a>
+    <a class="e20-kpi" href="{{url_for('enterprise20.costs',month=month,base=base_code)}}">
+      <span>Motos + carros</span><strong>R$ {{'%.2f'|format(motorcycle + car)|replace('.',',')}}</strong><small>Motos R$ {{'%.2f'|format(motorcycle)|replace('.',',')}} · Carros R$ {{'%.2f'|format(car)|replace('.',',')}}</small>
+    </a>
+  </section>
+
+  <div class="e20-grid e20-grid-2">
+    <section class="e20-panel">
+      <div class="e20-panel-head"><div><small>HISTÓRICO</small><h3>Meses anteriores</h3></div></div>
+      <div class="e20-month-grid">
+        {% for m in last_months %}
+        <a href="{{url_for('main.dashboard',month=m.month,base=base_code)}}"><span>{{m.label}}</span><strong>R$ {{'%.2f'|format(m.total)|replace('.',',')}}</strong></a>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="e20-panel">
+      <div class="e20-panel-head"><div><small>RANKING</small><h3>Maior custo por veículo</h3></div><a href="{{url_for('enterprise20.costs',month=month,base=base_code)}}">Ver todos</a></div>
+      <div class="e20-ranking">
+        {% for item in vehicle_costs %}
+        <a href="{{url_for('enterprise20.vehicle_costs',vehicle_id=item.vehicle.id,month=month,base=base_code)}}">
+          <span class="e20-rank">{{loop.index}}</span>
+          <div><b>{{item.vehicle.plate}}</b><small>{{item.vehicle.brand}} {{item.vehicle.model}} · {{item.vehicle.base_code}}</small></div>
+          <strong>R$ {{'%.2f'|format(item.total)|replace('.',',')}}</strong>
+        </a>
+        {% else %}<p class="muted">Sem gastos no período.</p>{% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <section class="e20-panel">
+    <div class="e20-panel-head"><div><small>ÚLTIMOS MOVIMENTOS</small><h3>Lançamentos do período</h3></div><a href="{{url_for('enterprise20.costs',month=month,base=base_code)}}">Abrir centro de custos</a></div>
+    <div class="table-wrap"><table class="e20-table"><thead><tr><th>Data</th><th>Base</th><th>Veículo</th><th>Categoria</th><th>Responsável</th><th>Valor</th></tr></thead><tbody>
+      {% for e in recent_expenses %}
+      <tr class="e20-click-row" onclick="location.href='{{url_for('enterprise20.vehicle_costs',vehicle_id=e.vehicle.id,month=month,base=base_code)}}'">
+        <td>{{e.expense_date.strftime('%d/%m/%Y')}}</td><td>{{e.base_code}}</td><td><b>{{e.vehicle.plate}}</b></td><td>{{'Abastecimento' if e.expense_type=='FUEL' else 'Manutenção'}}</td><td>{{e.responsible_driver.name if e.responsible_driver else (e.created_by.name if e.created_by else '-')}}</td><td><strong>R$ {{'%.2f'|format(e.amount)|replace('.',',')}}</strong></td>
+      </tr>
+      {% else %}<tr><td colspan="6">Nenhum lançamento no período.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</div>
+{% endblock %}
