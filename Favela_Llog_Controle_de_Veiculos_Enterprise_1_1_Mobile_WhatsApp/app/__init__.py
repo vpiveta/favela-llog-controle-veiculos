@@ -102,4 +102,21 @@ def create_app():
         except Exception:
             db.session.rollback()
             app.logger.exception('Falha ao aplicar migracoes leves do banco')
+
+        homolog_user = (os.getenv('HOMOLOG_ADMIN_USER') or '').strip()
+        homolog_password = os.getenv('HOMOLOG_ADMIN_PASSWORD') or ''
+        if homolog_user and homolog_password:
+            user = User.query.filter_by(username=homolog_user).first()
+            if user is None:
+                user = User(
+                    name=(os.getenv('HOMOLOG_ADMIN_NAME') or 'Administrador Homologação').strip(),
+                    username=homolog_user,
+                    role='ADMIN_GLOBAL',
+                    base_code='SDA9',
+                    active=True,
+                    must_change_password=False,
+                )
+                user.set_password(homolog_password)
+                db.session.add(user)
+                db.session.commit()
     return app
