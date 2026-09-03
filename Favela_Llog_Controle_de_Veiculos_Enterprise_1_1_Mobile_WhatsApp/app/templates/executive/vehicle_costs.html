@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}{{vehicle.plate}} · Custos e Uso{% endblock %}
+{% block content %}
+<div class="e20-shell">
+  <header class="e20-hero compact"><div><span class="e20-kicker">FICHA DO VEÍCULO</span><h2>{{vehicle.plate}}</h2><p>{{vehicle.brand}} {{vehicle.model}} · {{vehicle.base_code}} · {{month_label}}</p></div><div class="e20-actions"><a class="btn alt" href="{{url_for('enterprise20.costs',month=month,base=base_code)}}">← Centro de custos</a></div></header>
+  <section class="e20-kpis vehicle-kpis">
+    <div class="e20-kpi primary"><span>Custo no mês</span><strong>R$ {{'%.2f'|format(total)|replace('.',',')}}</strong><small>{{expenses|length}} lançamento(s)</small></div>
+    <div class="e20-kpi"><span>Abastecimento</span><strong>R$ {{'%.2f'|format(fuel)|replace('.',',')}}</strong><small>Combustível do período</small></div>
+    <div class="e20-kpi"><span>Manutenção</span><strong>R$ {{'%.2f'|format(maintenance)|replace('.',',')}}</strong><small>Serviços e peças</small></div>
+    <div class="e20-kpi"><span>KM atual</span><strong>{{vehicle.current_km or 0}} km</strong><small>Status: {{vehicle.status}}</small></div>
+  </section>
+  <div class="e20-grid e20-grid-2">
+    <section class="e20-panel"><div class="e20-panel-head"><div><small>HISTÓRICO OPERACIONAL</small><h3>Quem utilizou este veículo</h3></div></div><div class="e20-use-list">{% for c in uses %}<article><div><b>{{c.driver.name}}</b><small>{{c.checklist_date.strftime('%d/%m/%Y')}} · {{'Devolução' if c.checklist_type=='DEVOLUCAO' else 'Retirada'}}</small></div><span>{{c.odometer}} km</span><small>{% if c.borrowed_vehicle %}Uso temporário · responsável oficial: {{c.owner_driver.name if c.owner_driver else 'Sem vínculo'}}{% else %}Responsável cadastrado{% endif %}</small></article>{% else %}<p class="muted">Nenhum uso registrado neste mês.</p>{% endfor %}</div></section>
+    <section class="e20-panel"><div class="e20-panel-head"><div><small>RESPONSÁVEL ATUAL</small><h3>Vínculo do veículo</h3></div></div><div class="e20-owner-card"><strong>{{vehicle.driver.name if vehicle.driver else 'Sem motorista vinculado'}}</strong><span>{{vehicle.plate}} · {{vehicle.brand}} {{vehicle.model}}</span><small>Base {{vehicle.base_code}} · {{vehicle.current_km or 0}} km</small></div></section>
+  </div>
+  <section class="e20-panel"><div class="e20-panel-head"><div><small>HISTÓRICO FINANCEIRO</small><h3>Lançamentos de {{month_label}}</h3></div></div><div class="table-wrap"><table class="e20-table"><thead><tr><th>Data</th><th>Categoria</th><th>Quem lançou</th><th>Responsável</th><th>KM</th><th>Valor</th></tr></thead><tbody>{% for e in expenses %}<tr><td>{{e.expense_date.strftime('%d/%m/%Y')}}</td><td>{{'Abastecimento' if e.expense_type=='FUEL' else 'Manutenção'}}</td><td>{{e.created_by.name if e.created_by else '-'}}</td><td>{{e.responsible_driver.name if e.responsible_driver else '-'}}</td><td>{{e.odometer or '-'}}{% if e.odometer %} km{% endif %}</td><td><strong>R$ {{'%.2f'|format(e.amount)|replace('.',',')}}</strong></td></tr>{% else %}<tr><td colspan="6">Nenhum custo neste mês.</td></tr>{% endfor %}</tbody></table></div></section>
+</div>
+{% endblock %}
