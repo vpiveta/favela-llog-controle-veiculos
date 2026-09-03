@@ -54,6 +54,10 @@ def create_app():
     init_enterprise19_extra(app)
     from .enterprise19_history import init_enterprise19_history
     init_enterprise19_history(app)
+    # Regras de produção entram antes das exigências de CNH para garantir
+    # que a troca de senha do primeiro acesso aconteça primeiro.
+    from .production_upgrade import init_production_upgrade
+    init_production_upgrade(app)
     from .enterprise19_wait import init_enterprise19_wait
     init_enterprise19_wait(app)
     from .enterprise19_pdf_theme import init_pdf_theme
