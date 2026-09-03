@@ -8,4 +8,12 @@ document.addEventListener('DOMContentLoaded',()=>{
       const card=el.closest('article'); if(card) card.remove();
     }
   });
+  document.querySelectorAll('.metrics-fleet article').forEach(card=>{
+    const label=((card.querySelector('span')||{}).textContent||'').trim().toLowerCase();
+    if(label.includes('total no mês')||label.includes('abastecimento')||label.includes('manutenção')||label.includes('troca de óleo')){
+      card.style.cursor='pointer';
+      card.setAttribute('title','Abrir relatório mensal');
+      card.addEventListener('click',()=>{window.location.href='/relatorio-mensal';});
+    }
+  });
 });
