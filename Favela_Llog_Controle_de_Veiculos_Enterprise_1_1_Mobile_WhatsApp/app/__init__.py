@@ -68,6 +68,8 @@ def create_app():
     init_pdf_theme(app)
     from .checklist_pdf_upgrade import init_checklist_pdf_upgrade
     init_checklist_pdf_upgrade(app)
+    from .expense_pdf_upgrade import init_expense_pdf_upgrade
+    init_expense_pdf_upgrade(app)
     from .performance import init_performance
     init_performance(app)
     from .cli import register_cli
