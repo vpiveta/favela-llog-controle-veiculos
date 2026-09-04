@@ -66,6 +66,8 @@ def create_app():
     init_vehicle_ops_upgrade(app)
     from .enterprise19_pdf_theme import init_pdf_theme
     init_pdf_theme(app)
+    from .checklist_pdf_upgrade import init_checklist_pdf_upgrade
+    init_checklist_pdf_upgrade(app)
     from .performance import init_performance
     init_performance(app)
     from .cli import register_cli
