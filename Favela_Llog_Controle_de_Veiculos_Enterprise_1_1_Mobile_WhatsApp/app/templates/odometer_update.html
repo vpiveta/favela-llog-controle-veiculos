@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block title %}Atualizar KM · Favela Llog{% endblock %}
+{% block content %}
+<header class="page-head"><div><h2>Atualizar KM</h2><p>Corrija ou atualize a quilometragem de qualquer moto da sua base, mantendo quem informou e quem fez a alteração.</p></div></header>
+<form method="post" class="panel form-grid">
+<label>Moto<select name="vehicle_id" required><option value="">Selecione</option>{% for v in vehicles %}<option value="{{v.id}}">{{v.plate}} · {{v.brand}} {{v.model}} · KM atual {{v.current_km or 0}}</option>{% endfor %}</select></label>
+<label>Motorista que informou <small class="optional">opcional</small><select name="driver_id"><option value="">Não informado</option>{% for d in drivers %}<option value="{{d.id}}">{{d.name}} · {{d.username}}</option>{% endfor %}</select></label>
+<label>Novo KM<input type="number" name="new_km" min="0" required inputmode="numeric"></label>
+<label class="wide">Motivo / origem da atualização<textarea name="reason" required placeholder="Ex.: KM conferido no checklist / correção de lançamento / informado pelo motorista"></textarea></label>
+<button class="wide">Salvar atualização de KM</button>
+</form>
+<section class="panel"><div class="section-head"><div><h3>Últimas alterações</h3><p class="muted">Todo ajuste fica registrado.</p></div></div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Moto</th><th>KM anterior</th><th>Novo KM</th><th>Motorista</th><th>Alterado por</th><th>Motivo</th></tr></thead><tbody>{% for h in history %}<tr><td>{{h.created_at|local_dt}}</td><td>{{h.vehicle.plate}}</td><td>{{h.old_km}}</td><td><b>{{h.new_km}}</b></td><td>{{h.informed_driver.name if h.informed_driver else '-'}}</td><td>{{h.created_by.name}}</td><td>{{h.reason}}</td></tr>{% else %}<tr><td colspan="7">Nenhuma alteração registrada.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}
