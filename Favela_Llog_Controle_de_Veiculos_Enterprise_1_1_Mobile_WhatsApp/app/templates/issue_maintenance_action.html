@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Pendência de manutenção · Favela Llog{% endblock %}
+{% block content %}
+<header class="page-head"><div><h2>Pendência de manutenção</h2><p>{{issue.vehicle.plate}} · {{issue.item_label}}</p></div><a class="btn alt" href="{{url_for('main.dashboard')}}">Voltar</a></header>
+<section class="panel"><div class="detail-list"><p><b>Moto:</b> {{issue.vehicle.plate}} · {{issue.vehicle.brand}} {{issue.vehicle.model}}</p><p><b>Motorista responsável:</b> {{issue.vehicle.driver.name if issue.vehicle.driver else 'Sem motorista vinculado'}}</p><p><b>Item:</b> {{issue.item_label}}</p><p><b>Problema:</b> {{issue.description}}</p><p><b>Status atual:</b> {% if issue.status=='SCHEDULED' %}Agendada{% elif issue.status=='AUTHORIZED' %}Autorizada{% else %}Aguardando ação{% endif %}</p></div></section>
+<form method="post" class="panel form-grid">
+<label class="wide">Observação <small class="optional">opcional</small><textarea name="note" placeholder="Ex.: oficina agendada para amanhã / manutenção autorizada pelo gestor"></textarea></label>
+<div class="wide issue-action-grid">
+<button name="action" value="SCHEDULED" class="btn alt" type="submit">📅 Marcar como agendada</button>
+<button name="action" value="AUTHORIZED" class="btn alt" type="submit">✅ Marcar como autorizada</button>
+<button name="action" value="REGISTER" type="submit">🔧 Registrar manutenção agora</button>
+</div>
+</form>
+{% endblock %}
