@@ -2,14 +2,16 @@ import hmac
 import os
 
 from flask import flash, redirect, render_template, request, url_for
-from flask_login import current_user
+from flask_login import current_user, logout_user
 
 from .models import db, User, AuditLog
 
 
 def forgot_password_v2():
-    if current_user.is_authenticated:
-        return redirect(url_for('production.change_password'))
+    # Se o usuário chegou à recuperação já autenticado (por exemplo, preso no
+    # primeiro acesso), encerra a sessão para permitir a recuperação normal.
+    if current_user.is_authenticated and request.method == 'GET':
+        logout_user()
 
     if request.method == 'POST':
         username = (request.form.get('username') or '').strip()
@@ -45,16 +47,22 @@ def forgot_password_v2():
                 raise ValueError('Não foi possível validar os dados informados.')
 
             user.set_password(new_password)
+            # Recuperação validada equivale à criação de uma senha pessoal.
+            # Portanto, o usuário NÃO deve voltar para a tela de primeiro acesso.
             user.must_change_password = False
             db.session.add(AuditLog(
                 action='RECOVER_PASSWORD',
                 entity_type='USER',
                 entity_id=user.id,
-                description=f'Senha recuperada pelo próprio usuário usando {recovery_method}.',
+                description=f'Senha recuperada pelo próprio usuário usando {recovery_method}; primeiro acesso concluído.',
                 base_code=user.base_code,
                 user_id=user.id,
             ))
             db.session.commit()
+
+            # Garante que uma sessão antiga não mantenha estado anterior em cache.
+            if current_user.is_authenticated:
+                logout_user()
             flash('Senha redefinida com sucesso. Entre com a nova senha.', 'success')
             return redirect(url_for('auth.login'))
         except Exception as exc:
