@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for, has_request_context
 from flask_login import current_user, login_required
 from sqlalchemy import event
 from sqlalchemy.orm import Session
@@ -104,9 +104,10 @@ def issue_action(issue_id):
         note = (request.form.get('note') or '').strip()
         if action in {'SCHEDULED', 'AUTHORIZED'}:
             issue.status = action
+            label = 'manutenção agendada' if action == 'SCHEDULED' else 'manutenção autorizada'
             db.session.add(AuditLog(
                 action='VEHICLE_ISSUE_STATUS', entity_type='VEHICLE_ISSUE', entity_id=issue.id,
-                description=f'Pendência {issue.item_label} da moto {issue.vehicle.plate}: {"manutenção agendada" if action == "SCHEDULED" else "manutenção autorizada"}. {note}',
+                description=f'Pendência {issue.item_label} da moto {issue.vehicle.plate}: {label}. {note}',
                 base_code=issue.base_code, user_id=current_user.id,
             ))
             db.session.commit()
@@ -135,7 +136,7 @@ def maintenance_detail(expense_id):
 
 
 def _resolve_linked_issue_after_maintenance(sess, flush_context, instances):
-    if request.method != 'POST':
+    if not has_request_context() or request.method != 'POST':
         return
     issue_id = request.form.get('issue_id', type=int)
     if not issue_id:
