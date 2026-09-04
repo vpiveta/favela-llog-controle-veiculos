@@ -78,7 +78,7 @@ def create_app():
                 'alert_recipient': [('phone', 'VARCHAR(30)')],
                 'vehicle': [('vehicle_type', "VARCHAR(20) NOT NULL DEFAULT 'MOTORCYCLE'"), ('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'")],
                 'expense': [('asset_type', "VARCHAR(20) NOT NULL DEFAULT 'MOTORCYCLE'"), ('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'"), ('authorized_by_id','INTEGER'), ('responsible_driver_id','INTEGER'), ('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'), ('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
-                'maintenance_detail': [('is_oil_change','BOOLEAN NOT NULL DEFAULT FALSE'), ('oil_amount','NUMERIC(12,2))')],
+                'maintenance_detail': [('is_oil_change','BOOLEAN NOT NULL DEFAULT FALSE'), ('oil_amount','NUMERIC(12,2)')],
                 'oil_change': [('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'")],
                 'daily_checklist': [('odometer','INTEGER NOT NULL DEFAULT 0'), ('checklist_type',"VARCHAR(20) NOT NULL DEFAULT 'RETIRADA'"), ('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'"), ('attention_notes','TEXT'), ('charger_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('phone_holder_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('top_case_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('saddlebags_ok','BOOLEAN NOT NULL DEFAULT TRUE'), ('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'), ('deleted_at','TIMESTAMP'),('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
                 'admin_notification': [('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'"), ('whatsapp_sent_at','TIMESTAMP'),('whatsapp_sent_by_id','INTEGER')],
