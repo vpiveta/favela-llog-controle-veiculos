@@ -62,6 +62,8 @@ def create_app():
     init_enterprise19_wait(app)
     from .password_recovery_upgrade import init_password_recovery_upgrade
     init_password_recovery_upgrade(app)
+    from .vehicle_ops_upgrade import init_vehicle_ops_upgrade
+    init_vehicle_ops_upgrade(app)
     from .enterprise19_pdf_theme import init_pdf_theme
     init_pdf_theme(app)
     from .performance import init_performance
