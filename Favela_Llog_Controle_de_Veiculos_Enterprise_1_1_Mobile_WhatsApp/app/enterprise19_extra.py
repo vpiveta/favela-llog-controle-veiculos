@@ -25,7 +25,7 @@ def _extra_context():
     all_base_admins = admins_q.order_by(User.name).all()
     manager_open_issues = []
     if current_user.is_admin:
-        q = VehicleIssue.query.filter_by(status='OPEN')
+        q = VehicleIssue.query.filter(VehicleIssue.status.in_(('OPEN','SCHEDULED','AUTHORIZED')))
         if current_user.is_base_admin:
             q = q.filter_by(base_code=current_user.base_code)
         manager_open_issues = q.order_by(VehicleIssue.created_at.desc()).limit(30).all()
