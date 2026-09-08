@@ -91,7 +91,10 @@ def _fleet_fuel_status():
         Expense.expense_type == 'FUEL',
         Expense.is_deleted.is_(False),
     ).group_by(Expense.vehicle_id).subquery()
-    rows = Expense.query.join(
+    rows = Expense.query.options(
+        selectinload(Expense.created_by),
+        selectinload(Expense.vehicle),
+    ).join(
         max_dates,
         (Expense.vehicle_id == max_dates.c.vehicle_id) & (Expense.expense_date == max_dates.c.max_date),
     ).filter(Expense.is_deleted.is_(False), Expense.expense_type == 'FUEL').order_by(Expense.id.desc()).all()
