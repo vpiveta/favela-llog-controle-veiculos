@@ -1,17 +1,34 @@
-from .models import db, Vehicle, Expense, OilChange, OilAlertStatus
+from .models import Vehicle, Expense, OilChange, DailyChecklist
+
+OIL_INTERVAL_KM = 990
 
 
-def _latest_vehicle_odometer(vehicle_id, min_date=None):
-    q = Expense.query.filter(
-        Expense.vehicle_id == vehicle_id,
-        Expense.asset_type == 'MOTORCYCLE',
-        Expense.is_deleted.is_(False),
-        Expense.odometer.isnot(None),
+def _latest_checklist_by_type(vehicle_id, checklist_type, min_date=None):
+    q = DailyChecklist.query.filter(
+        DailyChecklist.vehicle_id == vehicle_id,
+        DailyChecklist.checklist_type == checklist_type,
+        DailyChecklist.is_deleted.is_(False),
+        DailyChecklist.odometer.isnot(None),
     )
     if min_date is not None:
-        q = q.filter(Expense.expense_date >= min_date)
-    row = q.order_by(Expense.expense_date.desc(), Expense.id.desc()).first()
-    return int(row.odometer) if row and row.odometer is not None else None
+        q = q.filter(DailyChecklist.checklist_date >= min_date)
+    return q.order_by(
+        DailyChecklist.checklist_date.desc(),
+        DailyChecklist.created_at.desc(),
+        DailyChecklist.id.desc(),
+    ).first()
+
+
+def _latest_operational_checklist(vehicle_id, min_date=None):
+    retirada = _latest_checklist_by_type(vehicle_id, 'RETIRADA', min_date)
+    devolucao = _latest_checklist_by_type(vehicle_id, 'DEVOLUCAO', min_date)
+    candidates = [c for c in (retirada, devolucao) if c is not None]
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda c: (c.checklist_date, c.created_at, c.id),
+    )
 
 
 def _build_oil_statuses(vehicle_id=None):
@@ -27,16 +44,15 @@ def _build_oil_statuses(vehicle_id=None):
         ).order_by(OilChange.change_date.desc(), OilChange.id.desc()).first()
 
         if not last_change:
-            current_km = _latest_vehicle_odometer(vehicle.id)
-            if current_km is None:
-                current_km = int(vehicle.current_km or 0)
+            latest = _latest_operational_checklist(vehicle.id)
+            current_km = int(latest.odometer) if latest and latest.odometer is not None else int(vehicle.current_km or 0)
             result.append({
                 'vehicle': vehicle,
                 'oil_change': None,
                 'base_km': None,
                 'current_km': current_km,
                 'traveled_km': 0,
-                'remaining_km': 990,
+                'remaining_km': OIL_INTERVAL_KM,
                 'target_km': None,
                 'level': 'neutral',
                 'status_label': 'Sem troca registrada',
@@ -44,16 +60,17 @@ def _build_oil_statuses(vehicle_id=None):
             continue
 
         base_km = int(last_change.odometer or 0)
-        current_km = _latest_vehicle_odometer(vehicle.id, last_change.change_date)
-        if current_km is None:
+        latest = _latest_operational_checklist(vehicle.id, last_change.change_date)
+        current_km = int(latest.odometer) if latest and latest.odometer is not None else base_km
+
+        # O cálculo usa SOMENTE a última RETIRADA/DEVOLUÇÃO válida após a troca.
+        # Evita que abastecimentos, edições manuais ou lançamentos antigos contaminem o ciclo.
+        if current_km < base_km:
             current_km = base_km
 
-        # O último lançamento da moto é a fonte operacional para o KM atual.
-        # Nunca deixa um lançamento anterior à troca produzir distância negativa.
-        current_km = max(base_km, int(current_km))
         traveled = max(0, current_km - base_km)
-        remaining = 990 - traveled
-        target = base_km + 990
+        remaining = OIL_INTERVAL_KM - traveled
+        target = base_km + OIL_INTERVAL_KM
 
         if remaining <= 0:
             level, label = 'danger', 'Vencida'
@@ -79,7 +96,5 @@ def _build_oil_statuses(vehicle_id=None):
 
 
 def init_oil_status_last_expense_fix(app):
-    # routes.build_oil_alerts resolve build_oil_statuses pelo namespace do módulo
-    # a cada chamada; substituir aqui corrige dashboard, alertas e notificações.
     from . import routes
     routes.build_oil_statuses = _build_oil_statuses
