@@ -5,7 +5,7 @@ from flask_login import current_user
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
-from .models import db, DailyChecklist, Expense, Vehicle
+from .models import db, DailyChecklist, Expense, OilChange, Vehicle
 from .time_utils import local_today
 
 
@@ -26,6 +26,59 @@ def _last_return(vehicle_id):
     if not vehicle_id:
         return None
     return DailyChecklist.query.options(selectinload(DailyChecklist.driver),selectinload(DailyChecklist.vehicle)).filter_by(vehicle_id=vehicle_id,checklist_type='DEVOLUCAO',is_deleted=False).order_by(DailyChecklist.checklist_date.desc(),DailyChecklist.created_at.desc(),DailyChecklist.id.desc()).first()
+
+
+def _latest_checklist(vehicle_id, on_or_before=None):
+    if not vehicle_id:
+        return None
+    q = DailyChecklist.query.filter(
+        DailyChecklist.vehicle_id == vehicle_id,
+        DailyChecklist.is_deleted.is_(False),
+    )
+    if on_or_before is not None:
+        q = q.filter(DailyChecklist.checklist_date <= on_or_before)
+    return q.order_by(
+        DailyChecklist.checklist_date.desc(),
+        DailyChecklist.created_at.desc(),
+        DailyChecklist.id.desc(),
+    ).first()
+
+
+def _is_gross_km_error(value, reference, lower_tolerance=100, upper_tolerance=3000):
+    if value is None or reference is None:
+        return False
+    value = int(value or 0)
+    reference = int(reference or 0)
+    if reference <= 0:
+        return False
+    return value < max(0, reference - lower_tolerance) or value > reference + upper_tolerance
+
+
+def _repair_vehicle_km_from_checklists(vehicle, fuel=None):
+    """Corrige apenas erros grosseiros de KM usando checklists como fonte confiável."""
+    changed = False
+    latest_checklist = _latest_checklist(vehicle.id)
+    if latest_checklist and _is_gross_km_error(vehicle.current_km, latest_checklist.odometer):
+        vehicle.current_km = int(latest_checklist.odometer or 0)
+        changed = True
+
+    if fuel:
+        fuel_ref = _latest_checklist(vehicle.id, fuel.expense_date)
+        if fuel_ref and _is_gross_km_error(fuel.odometer, fuel_ref.odometer, lower_tolerance=100, upper_tolerance=1500):
+            fuel.odometer = int(fuel_ref.odometer or 0)
+            changed = True
+
+    latest_oil = OilChange.query.filter_by(vehicle_id=vehicle.id).order_by(
+        OilChange.change_date.desc(), OilChange.id.desc()
+    ).first()
+    if latest_oil:
+        oil_ref = _latest_checklist(vehicle.id, latest_oil.change_date)
+        if oil_ref and _is_gross_km_error(latest_oil.odometer, oil_ref.odometer, lower_tolerance=100, upper_tolerance=1500):
+            latest_oil.odometer = int(oil_ref.odometer or 0)
+            latest_oil.next_change_km = int(oil_ref.odometer or 0) + 990
+            changed = True
+
+    return changed
 
 
 def _last_fuel(vehicle_id):
@@ -59,7 +112,20 @@ def _fleet_fuel_status():
     latest = {}
     for row in rows:
         latest.setdefault(row.vehicle_id, row)
-    return [{'vehicle': vehicle,'fuel': latest.get(vehicle.id),'days': _fuel_age(latest.get(vehicle.id))} for vehicle in vehicles]
+
+    repaired = False
+    result = []
+    for vehicle in vehicles:
+        fuel = latest.get(vehicle.id)
+        if _repair_vehicle_km_from_checklists(vehicle, fuel):
+            repaired = True
+        result.append({'vehicle': vehicle,'fuel': fuel,'days': _fuel_age(fuel)})
+    if repaired:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    return result
 
 
 def vehicle_v3_context():
