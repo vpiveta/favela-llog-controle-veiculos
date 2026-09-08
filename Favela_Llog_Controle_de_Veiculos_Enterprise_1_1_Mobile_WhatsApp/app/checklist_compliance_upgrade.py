@@ -140,6 +140,20 @@ def _admin_checklists_current_month():
         iy,im=int(y),int(m); value=f'{iy:04d}-{im:02d}'
         archive.append({'value':value,'label':f'{MONTHS_PT[im-1]} {iy}','count':count,'active':value==raw})
 
+    # Se o motorista já atingiu 2 dias consecutivos sem checklist, o admin precisa
+    # enxergá-lo imediatamente para poder liberar o acesso, mesmo antes da justificativa.
+    blocked_q=ChecklistComplianceCase.query.filter(
+        ChecklistComplianceCase.consecutive_count >= 2,
+        ChecklistComplianceCase.status == 'WAITING_JUSTIFICATION',
+    )
+    if current_user.is_base_admin:
+        blocked_q=blocked_q.filter_by(base_code=current_user.base_code)
+    waiting_blocked=blocked_q.all()
+    if waiting_blocked:
+        for case in waiting_blocked:
+            case.status='PENDING_APPROVAL'
+        db.session.commit()
+
     cq=ChecklistComplianceCase.query.filter(ChecklistComplianceCase.status.in_(('PENDING_APPROVAL','REJECTED')))
     if current_user.is_base_admin: cq=cq.filter_by(base_code=current_user.base_code)
     compliance_cases=cq.options(selectinload(ChecklistComplianceCase.driver)).order_by(ChecklistComplianceCase.missed_date.desc()).all()
