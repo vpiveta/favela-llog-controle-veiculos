@@ -3,6 +3,7 @@
 <header class="page-head"><div><h2>Nova manutenção de moto</h2><p>Qualquer usuário pode registrar a manutenção de uma moto da própria base. O responsável oficial da placa será preservado no lançamento.</p></div></header>
 <form method="post" enctype="multipart/form-data" class="panel form-grid">
   {% if maintenance_issue_id %}<input type="hidden" name="issue_id" value="{{maintenance_issue_id}}"><div class="notice wide"><b>Resolução de pendência:</b> ao salvar esta manutenção, a pendência selecionada será marcada como solucionada e ficará vinculada a este lançamento.</div>{% endif %}
+  <div class="notice wide" style="border-color:#00d9c7;background:rgba(0,217,199,.08)"><b>🤖 IA ativa neste lançamento</b><br><small>Depois de salvar a foto da nota, a IA confere os serviços, oficina, KM e identifica troca de óleo quando houver evidência clara. Ela também compara o KM com o último checklist para bloquear erros grosseiros.</small></div>
   <label>Moto
     <select name="motorcycle_vehicle_id" id="maintenanceVehicle" required>
       <option value="">Selecione</option>
@@ -21,9 +22,9 @@
   <label class="wide">Descrição<textarea name="description" required>{{request.form.get('description','')}}</textarea></label>
   <label class="check wide"><input type="checkbox" name="is_oil_change" id="oilChange" {% if request.form.get('is_oil_change')=='on' %}checked{% endif %}> Esta manutenção inclui troca de óleo</label>
   <div class="wide oil-fields" id="oilFields"><label>Tipo de óleo<input name="oil_type" value="{{request.form.get('oil_type','')}}"></label><label>Valor exato da troca de óleo (R$)<input name="oil_amount" id="oilAmount" inputmode="decimal" value="{{request.form.get('oil_amount','')}}" placeholder="0,00"></label><div class="readonly"><b>Próxima troca</b><span>Calculada automaticamente em +990 km</span></div></div>
-  <label class="wide camera-field"><span>Foto da nota</span><span class="camera-button">📷 Abrir câmera</span><input class="camera-input" type="file" name="receipt" accept="image/*" capture="environment" required data-preview="maintenancePreview"><small>A câmera traseira será aberta no celular.</small></label>
+  <label class="wide camera-field"><span>Foto da nota</span><span class="camera-button">📷 Abrir câmera</span><input class="camera-input" type="file" name="receipt" accept="image/*" capture="environment" required data-preview="maintenancePreview"><small>A nota será arquivada e analisada automaticamente pela IA.</small></label>
   <img id="maintenancePreview" class="receipt-preview" alt="Pré-visualização da nota" hidden>
   <label class="wide">Observação<textarea name="notes">{{request.form.get('notes','')}}</textarea></label>
-  <button class="wide">Salvar manutenção</button>
+  <button class="wide">🤖 Salvar e analisar com IA</button>
 </form>
 {% endblock %}
