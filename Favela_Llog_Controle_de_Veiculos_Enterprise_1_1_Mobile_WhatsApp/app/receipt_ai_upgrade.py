@@ -8,11 +8,12 @@ import requests
 from flask import current_app, flash, g, redirect, request, url_for
 from flask_login import current_user
 
-from .models import db, Expense, OilChange, StoredFile, VehicleIssue, AuditLog
+from .models import db, Expense, OilChange, StoredFile, VehicleIssue, AuditLog, DailyChecklist
 from .storage import download_bytes, SupabaseStorageError
 from .time_utils import utc_now
 
 AI_MARKER = '[IA-NOTA]'
+KM_MARKER = '[KM-VALIDADO]'
 MODEL = os.getenv('OPENAI_RECEIPT_MODEL', 'gpt-5.6-luna')
 
 
@@ -33,6 +34,26 @@ def _receipt_bytes(expense):
     else:
         data, mime = stored.content, stored.mime_type
     return data or None, mime or stored.mime_type or 'application/octet-stream', stored
+
+
+def _latest_checklist_reference(expense):
+    return DailyChecklist.query.filter(
+        DailyChecklist.vehicle_id == expense.vehicle_id,
+        DailyChecklist.is_deleted.is_(False),
+        DailyChecklist.checklist_date <= expense.expense_date,
+    ).order_by(
+        DailyChecklist.checklist_date.desc(),
+        DailyChecklist.created_at.desc(),
+        DailyChecklist.id.desc(),
+    ).first()
+
+
+def _plausible_upper_km(expense, checklist):
+    if not checklist:
+        return None
+    days = max(0, (expense.expense_date - checklist.checklist_date).days)
+    # Margem operacional ampla para evitar falso positivo, mas bloqueia erros de digitação grosseiros.
+    return int(checklist.odometer or 0) + max(300, (days + 1) * 250)
 
 
 def _extract_response_text(payload):
@@ -65,13 +86,23 @@ def analyze_receipt(expense, data, mime_type, filename='nota'):
     api_key = (os.getenv('OPENAI_API_KEY') or '').strip()
     if not api_key:
         return None
+    checklist = _latest_checklist_reference(expense)
+    declared_km = expense.odometer
+    checklist_km = checklist.odometer if checklist else None
+    checklist_date = checklist.checklist_date.isoformat() if checklist else None
     prompt = (
         'Analise esta nota/comprovante de veículo. Retorne SOMENTE JSON válido com: '
         'services (array de serviços/peças efetivamente identificados), oil_change (boolean), '
-        'odometer (inteiro ou null), workshop (string ou null), total_amount (number ou null), '
-        'document_date (YYYY-MM-DD ou null), confidence (0 a 1) e summary (string curta). '
-        'Não invente informação. Se não estiver legível, use null ou lista vazia. '
-        'Considere troca de óleo apenas quando a nota indicar óleo/troca de óleo de forma clara.'
+        'odometer (inteiro ou null, somente se estiver visível na nota), workshop (string ou null), '
+        'total_amount (number ou null), document_date (YYYY-MM-DD ou null), confidence (0 a 1), '
+        'summary (string curta) e odometer_assessment (string curta). '
+        f'Contexto do sistema: KM informado pelo motorista={declared_km}; '
+        f'último checklist disponível={checklist_km} km em {checklist_date}. '
+        'Use o checklist apenas como referência de consistência; não invente um KM para a nota. '
+        'Se o KM informado pelo motorista for menor que o último checklist, diga isso em odometer_assessment. '
+        'Se parecer muito maior por provável erro de digitação, também sinalize. '
+        'Considere troca de óleo apenas quando a nota indicar óleo/troca de óleo de forma clara. '
+        'Não invente informação. Se não estiver legível, use null ou lista vazia.'
     )
     encoded = base64.b64encode(data).decode('ascii')
     if mime_type == 'application/pdf' or filename.lower().endswith('.pdf'):
@@ -116,6 +147,35 @@ def _issue_matches(issue, services_text):
     return any(token in target for token in tokens)
 
 
+def _validated_km(expense, analysis):
+    checklist = _latest_checklist_reference(expense)
+    declared = int(expense.odometer or 0)
+    reference = int(checklist.odometer or 0) if checklist else 0
+    upper = _plausible_upper_km(expense, checklist)
+    try:
+        ai_km = int(analysis.get('odometer')) if analysis.get('odometer') is not None else None
+    except Exception:
+        ai_km = None
+
+    if checklist and declared < reference:
+        if ai_km is not None and ai_km >= reference:
+            return ai_km, f'KM corrigido de {declared} para {ai_km} pela nota; checklist anterior: {reference} km.'
+        return reference, f'KM corrigido de {declared} para {reference} usando o último checklist.'
+
+    if checklist and upper is not None and declared > upper:
+        if ai_km is not None and reference <= ai_km <= upper:
+            return ai_km, f'KM informado ({declared}) estava fora da faixa esperada; nota confirmou {ai_km} km.'
+        return reference, f'KM informado ({declared}) estava muito acima da referência; mantido {reference} km do último checklist para evitar erro de digitação.'
+
+    if ai_km is not None:
+        if not checklist or ai_km >= reference:
+            if upper is None or ai_km <= upper:
+                if ai_km != declared:
+                    return ai_km, f'KM ajustado de {declared} para {ai_km} conforme leitura da nota.'
+                return ai_km, None
+    return declared, None
+
+
 def apply_analysis(expense, analysis, actor_id=None):
     if not analysis:
         return False
@@ -124,11 +184,20 @@ def apply_analysis(expense, analysis, actor_id=None):
     services = _normalize_services(analysis.get('services'))
     try: confidence = float(analysis.get('confidence') or 0)
     except Exception: confidence = 0.0
-    try: ai_km = int(analysis.get('odometer')) if analysis.get('odometer') is not None else None
-    except Exception: ai_km = None
-    if ai_km is not None and ai_km >= 0:
-        expense.odometer = max(expense.odometer or 0, ai_km)
-        if ai_km > (vehicle.current_km or 0): vehicle.current_km = ai_km; changed = True
+
+    final_km, km_note = _validated_km(expense, analysis)
+    if final_km >= 0 and final_km != (expense.odometer or 0):
+        expense.odometer = final_km
+        changed = True
+    # Nunca deixa o KM geral da moto cair; mas também não aceita um valor suspeito já salvo pelo formulário.
+    checklist = _latest_checklist_reference(expense)
+    if checklist and (vehicle.current_km or 0) > _plausible_upper_km(expense, checklist) and final_km <= _plausible_upper_km(expense, checklist):
+        vehicle.current_km = max(int(checklist.odometer or 0), final_km)
+        changed = True
+    elif final_km > (vehicle.current_km or 0):
+        vehicle.current_km = final_km
+        changed = True
+
     if expense.maintenance:
         detail = expense.maintenance
         original = detail.description or ''
@@ -139,24 +208,36 @@ def apply_analysis(expense, analysis, actor_id=None):
             detail.workshop = str(analysis.get('workshop')).strip()[:160] or None; changed = True
         if bool(analysis.get('oil_change')) and confidence >= 0.60:
             detail.is_oil_change = True
-            base_km = expense.odometer or vehicle.current_km or 0
+            base_km = final_km or vehicle.current_km or 0
             existing = OilChange.query.filter_by(expense_id=expense.id).first()
             if base_km > 0 and not existing:
                 db.session.add(OilChange(change_date=expense.expense_date, odometer=base_km, next_change_km=base_km + 990, next_change_date=None, oil_type=None, vehicle_id=vehicle.id, expense_id=expense.id)); changed = True
+            elif existing and existing.odometer != base_km:
+                existing.odometer = base_km
+                existing.next_change_km = base_km + 990
+                changed = True
         if services and confidence >= 0.60:
             services_text = ' '.join(services)
             for issue in VehicleIssue.query.filter_by(vehicle_id=vehicle.id, status='OPEN').all():
                 if _issue_matches(issue, services_text):
                     issue.status = 'RESOLVED'; issue.resolved_at = utc_now(); issue.resolved_by_id = actor_id or expense.created_by_id; issue.maintenance_expense_id = expense.id; changed = True
+
     note = expense.notes or ''
+    additions = []
+    if KM_MARKER not in note and km_note:
+        additions.append(f'{KM_MARKER} {km_note}')
     if AI_MARKER not in note:
         summary = str(analysis.get('summary') or '').strip()
         services_label = '; '.join(services) if services else 'nenhum serviço adicional confirmado'
         audit_note = f'{AI_MARKER} Nota analisada por IA. Serviços: {services_label}'
         if summary: audit_note += f'. Resumo: {summary}'
-        expense.notes = (note.rstrip() + ('\n' if note.strip() else '') + audit_note)[:10000]; changed = True
+        additions.append(audit_note)
+    if additions:
+        expense.notes = (note.rstrip() + ('\n' if note.strip() else '') + '\n'.join(additions))[:10000]
+        changed = True
+
     if changed and actor_id:
-        db.session.add(AuditLog(action='AI_RECEIPT_SYNC', entity_type='EXPENSE', entity_id=expense.id, description=f'Nota analisada por IA e ficha do veículo {vehicle.plate} sincronizada.', user_id=actor_id))
+        db.session.add(AuditLog(action='AI_RECEIPT_SYNC', entity_type='EXPENSE', entity_id=expense.id, description=f'Nota analisada por IA e ficha do veículo {vehicle.plate} sincronizada. KM final: {final_km}.', user_id=actor_id))
     return changed
 
 
@@ -218,7 +299,7 @@ def init_receipt_ai_upgrade(app):
             return redirect(request.referrer or url_for('main.history'))
         try:
             changed = process_expense(expense, actor_id=current_user.id, force=False)
-            if changed: flash('Nota analisada pela IA e ficha da moto atualizada.', 'success')
+            if changed: flash('Nota analisada pela IA. KM, serviços e ficha da moto foram conferidos com o último checklist.', 'success')
             elif AI_MARKER in (expense.notes or ''): flash('Esta nota já foi analisada pela IA.', 'info')
             else: flash('Não foi possível analisar: confira se a nota/comprovante está anexado.', 'error')
         except Exception as exc:
