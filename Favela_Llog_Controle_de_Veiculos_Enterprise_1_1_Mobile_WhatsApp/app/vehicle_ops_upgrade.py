@@ -1,11 +1,12 @@
 from datetime import datetime
+from decimal import Decimal
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for, has_request_context
 from flask_login import current_user, login_required
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
-from .models import db, User, Vehicle, VehicleIssue, Expense, AuditLog
+from .models import db, User, Vehicle, VehicleIssue, Expense, DailyChecklist, AuditLog
 from .time_utils import local_today, utc_now
 
 ops_bp = Blueprint('vehicle_ops', __name__)
@@ -39,6 +40,66 @@ def _drivers_scope():
     if not current_user.is_global_admin:
         q = q.filter_by(base_code=current_user.base_code)
     return q.all()
+
+
+def _can_manage_vehicle(vehicle):
+    if not current_user.is_admin:
+        return False
+    return current_user.is_global_admin or vehicle.base_code == current_user.base_code
+
+
+@ops_bp.post('/moto/<int:vehicle_id>/status')
+@login_required
+def vehicle_status(vehicle_id):
+    vehicle = db.session.get(Vehicle, vehicle_id) or abort(404)
+    if vehicle.vehicle_type != 'MOTORCYCLE' or not _can_manage_vehicle(vehicle):
+        abort(403)
+    new_status = (request.form.get('status') or '').upper().strip()
+    if new_status not in {'AVAILABLE', 'MAINTENANCE', 'BLOCKED'}:
+        flash('Status inválido.', 'danger')
+        return redirect(request.referrer or url_for('main.dashboard'))
+    old_status = vehicle.status
+    vehicle.status = new_status
+    db.session.add(AuditLog(
+        action='VEHICLE_STATUS', entity_type='VEHICLE', entity_id=vehicle.id,
+        description=f'Status da moto {vehicle.plate} alterado de {old_status} para {new_status}.',
+        base_code=vehicle.base_code, user_id=current_user.id,
+    ))
+    db.session.commit()
+    flash(f'Status da moto {vehicle.plate} atualizado.', 'success')
+    return redirect(request.referrer or url_for('main.dashboard'))
+
+
+@ops_bp.get('/moto/<int:vehicle_id>/historico-completo')
+@login_required
+def vehicle_full_history(vehicle_id):
+    vehicle = db.session.get(Vehicle, vehicle_id) or abort(404)
+    if vehicle.vehicle_type != 'MOTORCYCLE':
+        abort(404)
+    if not current_user.is_global_admin and vehicle.base_code != current_user.base_code:
+        abort(403)
+    if not current_user.is_admin and (not current_user.vehicle or current_user.vehicle.id != vehicle.id):
+        abort(403)
+
+    expenses = Expense.query.filter(
+        Expense.vehicle_id == vehicle.id,
+        Expense.asset_type == 'MOTORCYCLE',
+        Expense.is_deleted.is_(False),
+    ).order_by(Expense.expense_date.desc(), Expense.id.desc()).all()
+    uses = DailyChecklist.query.filter(
+        DailyChecklist.vehicle_id == vehicle.id,
+        DailyChecklist.is_deleted.is_(False),
+    ).order_by(DailyChecklist.checklist_date.desc(), DailyChecklist.created_at.desc()).all()
+    total = sum((Decimal(e.amount) for e in expenses), Decimal('0'))
+    fuel = sum((Decimal(e.amount) for e in expenses if e.expense_type == 'FUEL'), Decimal('0'))
+    maintenance = sum((Decimal(e.amount) for e in expenses if e.expense_type == 'MAINTENANCE'), Decimal('0'))
+    from .enterprise19_wait import get_driver_cnh
+    return render_template(
+        'vehicle_history.html', vehicle=vehicle, month='', month_label='todo o histórico',
+        expenses=expenses, uses=uses, total=total, fuel=fuel, maintenance=maintenance,
+        owner_cnh=get_driver_cnh(vehicle.driver_id) if vehicle.driver_id else None,
+        all_history=True,
+    )
 
 
 @ops_bp.route('/km/atualizar', methods=['GET', 'POST'])
@@ -155,7 +216,6 @@ def _resolve_linked_issue_after_maintenance(sess, flush_context, instances):
 
 def init_vehicle_ops_upgrade(app):
     app.register_blueprint(ops_bp)
-    # Corrige o botão antigo sem mudar os links já renderizados no sistema.
     app.view_functions['enterprise19.issue_maintenance'] = lambda issue_id: redirect(url_for('vehicle_ops.issue_action', issue_id=issue_id))
     event.listen(Session, 'before_flush', _resolve_linked_issue_after_maintenance)
 
