@@ -6,7 +6,7 @@
   {% if v3_vehicle %}
   <article class="driver-bike-card"><div><span class="eyebrow">MINHA MOTO</span><h2>{{v3_vehicle.plate}}</h2><p>{{v3_vehicle.brand}} {{v3_vehicle.model}}</p><small>KM atual</small><strong>{{'{:,}'.format(v3_vehicle.current_km or 0).replace(',','.')}} km</strong></div><div class="bike-status"><span class="status-dot"></span>{{'Disponível' if v3_vehicle.status!='MAINTENANCE' else 'Manutenção'}}</div></article>
   <div class="driver-status-row">
-    <article class="mini-status oil"><span>🛢</span><div><b>Óleo</b>{% if e18 and e18.oil and e18.oil.level != 'none' %}<strong>{{e18.oil.remaining if e18.oil.remaining is defined else e18.oil.remaining_km}} km</strong><small>para troca</small>{% else %}<strong>—</strong><small>sem registro</small>{% endif %}</div></article>
+    <article class="mini-status oil"><span>🛢</span><div><b>Óleo</b>{% if e18 and e18.oil %}<strong>{{e18.oil.remaining_km if e18.oil.remaining_km is defined else (e18.oil.remaining if e18.oil.remaining is defined else '—')}} km</strong><small>para troca</small>{% else %}<strong>—</strong><small>sem registro</small>{% endif %}</div></article>
     <article class="mini-status fuel"><span>⛽</span><div><b>Combustível</b>{% if v3_last_fuel %}<strong>{% if v3_fuel_days==0 %}Hoje{% elif v3_fuel_days==1 %}1 dia{% else %}{{v3_fuel_days}} dias{% endif %}</strong><small>Último: {{v3_last_fuel.expense_date.strftime('%d/%m')}}</small>{% else %}<strong>—</strong><small>sem registro</small>{% endif %}</div></article>
   </div>
   <div class="driver-actions-grid"><a href="{{url_for('main.checklist_new',type='RETIRADA')}}" class="action-tile teal"><span>↑</span><b>Retirada</b></a><a href="{{url_for('main.checklist_new',type='DEVOLUCAO')}}" class="action-tile purple"><span>↓</span><b>Devolução</b></a><a href="{{url_for('main.fuel_new',type='MOTORCYCLE')}}" class="action-tile blue"><span>⛽</span><b>Abastecer</b></a><a href="{{url_for('main.maintenance_new')}}" class="action-tile orange"><span>⌘</span><b>Manutenção</b></a></div>
@@ -16,16 +16,48 @@
 {% else %}
 <section class="manager-dashboard">
   <header class="screen-title"><div><h1>Painel da Frota</h1><p>Visão geral da operação · {{current_user.base_code}}</p></div><div class="header-tools"><span class="date-chip">{{today.strftime('%d/%m/%Y') if today else ''}}</span></div></header>
+  {% set fleet = e18.fleet if e18 and e18.fleet else none %}
+  {% set total_motos = fleet.total if fleet else 0 %}
+  {% set em_atencao = fleet.warning if fleet else 0 %}
+  {% set vencidas = fleet.danger if fleet else 0 %}
+  {% set disponiveis = total_motos - em_atencao - vencidas %}
   <div class="manager-kpis">
-    <article><span>🏍</span><div><b>{{e18.fleet.total if e18 and e18.fleet else 0}}</b><small>Motos</small></div></article>
-    <article><span>✓</span><div><b>{{e18.fleet.success if e18 and e18.fleet else 0}}</b><small>Disponíveis</small></div></article>
-    <article class="warn"><span>⌘</span><div><b>{{maintenance_vehicles|length if maintenance_vehicles else 0}}</b><small>Manutenção</small></div></article>
+    <article><span>🏍</span><div><b>{{total_motos}}</b><small>Motos</small></div></article>
+    <article><span>✓</span><div><b>{{disponiveis if disponiveis > 0 else 0}}</b><small>Disponíveis</small></div></article>
+    <article class="warn"><span>⌘</span><div><b>{{maintenance_vehicles|length}}</b><small>Manutenção</small></div></article>
     <article class="danger"><span>!</span><div><b>{{manager_open_issues|length if manager_open_issues else 0}}</b><small>Pendências</small></div></article>
   </div>
-  <section class="fleet-section"><div class="section-line"><h2>Estado das motos</h2><a href="{{url_for('main.vehicles')}}">Ver frota</a></div><div class="filter-pills"><span class="active">Todos</span><span>Disponíveis</span><span>Manutenção</span><span>Pendências</span></div><label class="compact-search">⌕<input type="search" placeholder="Buscar por placa ou motorista..." data-list-search="fleetStatusList"></label><div id="fleetStatusList" class="fleet-list">
-  {% for item in v3_fleet_fuel or [] %}{% set v=item.vehicle %}<a href="{{url_for('production.search',q=v.plate)}}" class="fleet-row" data-search-item="{{(v.plate ~ ' ' ~ (v.driver.name if v.driver else ''))|lower}}"><div class="fleet-ident"><b>{{v.plate}}</b><small>{{v.driver.name if v.driver else 'Sem motorista'}}</small></div><span class="pill {{'red' if v.status=='MAINTENANCE' else 'green'}}">{{'Manutenção' if v.status=='MAINTENANCE' else 'Disponível'}}</span><span class="fleet-metric fuel">⛽ {% if item.days is none %}—{% else %}{{item.days}} d{% endif %}</span><span class="fleet-metric oil">🛢 —</span><span>›</span></a>{% else %}<div class="empty-state"><p>Nenhuma moto encontrada.</p></div>{% endfor %}
-  </div></section>
-  {% if manager_issue_groups %}<section class="fleet-section"><div class="section-line"><h2>Pendências da frota</h2><a href="{{url_for('main.alerts')}}">Ver todas</a></div><div class="compact-issue-list">{% for group in manager_issue_groups[:4] %}<article class="compact-issue-card"><div class="issue-head"><div><b>{{group.vehicle.plate}}</b><small>{{group.vehicle.driver.name if group.vehicle and group.vehicle.driver else 'Sem motorista'}}</small></div><span class="pill yellow">{{group.issues|length}} pendência{{'s' if group.issues|length!=1}}</span></div>{% for issue in group.issues[:2] %}<div class="issue-line"><span>{{issue.item_label}}</span><b>{{issue.description}}</b></div>{% endfor %}<a href="{{url_for('enterprise19.issue_maintenance',issue_id=group.latest.id)}}" class="compact-resolve">⌘ Resolver</a></article>{% endfor %}</div></section>{% endif %}
+
+  <section class="fleet-section">
+    <div class="section-line"><h2>Estado das motos</h2><a href="{{url_for('main.vehicles')}}">Ver frota</a></div>
+    <label class="compact-search">⌕<input type="search" placeholder="Buscar por placa ou motorista..." data-list-search="fleetStatusList"></label>
+    <div id="fleetStatusList" class="fleet-list">
+    {% for item in v3_fleet_fuel %}
+      {% set v = item.vehicle %}
+      <div class="fleet-row" data-search-item="{{(v.plate ~ ' ' ~ (v.driver.name if v.driver else ''))|lower}}">
+        <div class="fleet-ident"><b>{{v.plate}}</b><small>{{v.driver.name if v.driver else 'Sem motorista'}}</small></div>
+        <span class="pill {{'red' if v.status=='MAINTENANCE' else 'green'}}">{{'Manutenção' if v.status=='MAINTENANCE' else 'Disponível'}}</span>
+        <span class="fleet-metric fuel">⛽ {% if item.days is none %}—{% elif item.days == 0 %}Hoje{% else %}{{item.days}} d{% endif %}</span>
+        {% if item.fuel %}<span class="fleet-metric">{{item.fuel.odometer or 0}} km</span>{% else %}<span class="fleet-metric">Sem abastecimento</span>{% endif %}
+      </div>
+    {% else %}<div class="empty-state"><p>Nenhuma moto cadastrada.</p></div>{% endfor %}
+    </div>
+  </section>
+
+  {% if manager_open_issues %}
+  <section class="fleet-section">
+    <div class="section-line"><h2>Pendências da frota</h2><a href="{{url_for('main.alerts')}}">Ver todas</a></div>
+    <div class="compact-issue-list">
+      {% for issue in manager_open_issues[:6] %}
+      <article class="compact-issue-card">
+        <div class="issue-head"><div><b>{{issue.vehicle.plate}}</b><small>{{issue.vehicle.driver.name if issue.vehicle.driver else 'Sem motorista'}}</small></div><span class="pill yellow">Atenção</span></div>
+        <div class="issue-line"><span>{{issue.item_label}}</span><b>{{issue.description}}</b></div>
+        <a href="{{url_for('enterprise19.issue_maintenance',issue_id=issue.id)}}" class="compact-resolve">⌘ Resolver</a>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 </section>
 {% endif %}
 {% endblock %}
