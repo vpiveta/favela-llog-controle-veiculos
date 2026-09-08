@@ -64,6 +64,8 @@ def create_app():
     init_vehicle_ops_upgrade(app)
     from .vehicle_metrics_upgrade import init_vehicle_metrics_upgrade
     init_vehicle_metrics_upgrade(app)
+    from .fleet_intelligence_upgrade import init_fleet_intelligence_upgrade
+    init_fleet_intelligence_upgrade(app)
     from .checklist_compliance_upgrade import init_checklist_compliance_upgrade
     init_checklist_compliance_upgrade(app)
     from .checklist_retroactive_upgrade import init_checklist_retroactive_upgrade
