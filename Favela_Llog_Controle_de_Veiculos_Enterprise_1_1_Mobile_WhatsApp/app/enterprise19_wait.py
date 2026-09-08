@@ -284,6 +284,7 @@ def init_enterprise19_wait(app):
         if not current_user.is_authenticated or current_user.role != 'DRIVER':
             return None
         allowed = {
+            'production.change_password',
             'enterprise19_wait.complete_cnh', 'auth.logout', 'static',
             'enterprise19_wait.vehicle_use_wait', 'enterprise19_wait.vehicle_use_wait_status',
             'enterprise19_wait.cancel_vehicle_use_wait'
