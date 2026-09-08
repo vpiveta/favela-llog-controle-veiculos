@@ -1,6 +1,8 @@
 from .models import Vehicle, Expense, OilChange, DailyChecklist
 
 OIL_INTERVAL_KM = 990
+MAX_PLAUSIBLE_DAILY_DELTA = 1500
+MAX_ANCHOR_DELTA = 5000
 
 
 def _latest_checklist_by_type(vehicle_id, checklist_type, min_date=None):
@@ -19,16 +21,46 @@ def _latest_checklist_by_type(vehicle_id, checklist_type, min_date=None):
     ).first()
 
 
-def _latest_operational_checklist(vehicle_id, min_date=None):
-    retirada = _latest_checklist_by_type(vehicle_id, 'RETIRADA', min_date)
-    devolucao = _latest_checklist_by_type(vehicle_id, 'DEVOLUCAO', min_date)
+def _pick_operational_km(vehicle, min_date=None):
+    retirada = _latest_checklist_by_type(vehicle.id, 'RETIRADA', min_date)
+    devolucao = _latest_checklist_by_type(vehicle.id, 'DEVOLUCAO', min_date)
     candidates = [c for c in (retirada, devolucao) if c is not None]
     if not candidates:
-        return None
-    return max(
-        candidates,
-        key=lambda c: (c.checklist_date, c.created_at, c.id),
-    )
+        return None, None
+
+    # Se retirada e devolução forem coerentes, usa o registro cronologicamente mais recente.
+    if len(candidates) == 2:
+        r_km = int(retirada.odometer or 0)
+        d_km = int(devolucao.odometer or 0)
+        if abs(r_km - d_km) <= MAX_PLAUSIBLE_DAILY_DELTA:
+            chosen = max(candidates, key=lambda c: (c.checklist_date, c.created_at, c.id))
+            return int(chosen.odometer or 0), chosen
+
+    # Quando há salto absurdo entre retirada/devolução, usa o KM atual corrigido da moto
+    # apenas como âncora para descobrir qual checklist é plausível.
+    anchor = int(vehicle.current_km or 0)
+    plausible = []
+    if anchor > 0:
+        for c in candidates:
+            km = int(c.odometer or 0)
+            if abs(km - anchor) <= MAX_ANCHOR_DELTA:
+                plausible.append(c)
+
+    if plausible:
+        chosen = min(plausible, key=lambda c: abs(int(c.odometer or 0) - anchor))
+        return int(chosen.odometer or 0), chosen
+
+    # Última barreira: rejeita leitura claramente contaminada (ex.: 468.000 km)
+    # quando a moto cadastrada está em uma faixa muito menor.
+    if anchor > 0:
+        chosen = min(candidates, key=lambda c: abs(int(c.odometer or 0) - anchor))
+        km = int(chosen.odometer or 0)
+        if abs(km - anchor) > MAX_ANCHOR_DELTA:
+            return anchor, None
+        return km, chosen
+
+    chosen = min(candidates, key=lambda c: int(c.odometer or 0))
+    return int(chosen.odometer or 0), chosen
 
 
 def _build_oil_statuses(vehicle_id=None):
@@ -43,28 +75,28 @@ def _build_oil_statuses(vehicle_id=None):
             (OilChange.expense_id.is_(None)) | (Expense.is_deleted.is_(False)),
         ).order_by(OilChange.change_date.desc(), OilChange.id.desc()).first()
 
+        current_km, source = _pick_operational_km(vehicle, last_change.change_date if last_change else None)
+
         if not last_change:
-            latest = _latest_operational_checklist(vehicle.id)
-            current_km = int(latest.odometer) if latest and latest.odometer is not None else int(vehicle.current_km or 0)
+            current_km = current_km if current_km is not None else int(vehicle.current_km or 0)
             result.append({
-                'vehicle': vehicle,
-                'oil_change': None,
-                'base_km': None,
-                'current_km': current_km,
-                'traveled_km': 0,
-                'remaining_km': OIL_INTERVAL_KM,
-                'target_km': None,
-                'level': 'neutral',
-                'status_label': 'Sem troca registrada',
+                'vehicle': vehicle, 'oil_change': None, 'base_km': None,
+                'current_km': current_km, 'traveled_km': 0,
+                'remaining_km': OIL_INTERVAL_KM, 'target_km': None,
+                'level': 'neutral', 'status_label': 'Sem troca registrada',
+                'km_source': source.checklist_type if source else 'CADASTRO',
             })
             continue
 
         base_km = int(last_change.odometer or 0)
-        latest = _latest_operational_checklist(vehicle.id, last_change.change_date)
-        current_km = int(latest.odometer) if latest and latest.odometer is not None else base_km
+        if current_km is None:
+            current_km = int(vehicle.current_km or base_km)
 
-        # O cálculo usa SOMENTE a última RETIRADA/DEVOLUÇÃO válida após a troca.
-        # Evita que abastecimentos, edições manuais ou lançamentos antigos contaminem o ciclo.
+        # Se o KM da troca também estiver acima da realidade atual por erro histórico,
+        # não produz número negativo absurdo: mantém o ciclo neutro para conferência.
+        if base_km > current_km + MAX_ANCHOR_DELTA:
+            base_km = current_km
+
         if current_km < base_km:
             current_km = base_km
 
@@ -82,15 +114,11 @@ def _build_oil_statuses(vehicle_id=None):
             level, label = 'success', 'Normal'
 
         result.append({
-            'vehicle': vehicle,
-            'oil_change': last_change,
-            'base_km': base_km,
-            'current_km': current_km,
-            'traveled_km': traveled,
-            'remaining_km': remaining,
-            'target_km': target,
-            'level': level,
-            'status_label': label,
+            'vehicle': vehicle, 'oil_change': last_change,
+            'base_km': base_km, 'current_km': current_km,
+            'traveled_km': traveled, 'remaining_km': remaining,
+            'target_km': target, 'level': level, 'status_label': label,
+            'km_source': source.checklist_type if source else 'CADASTRO',
         })
     return result
 
