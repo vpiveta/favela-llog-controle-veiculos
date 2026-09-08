@@ -64,6 +64,8 @@ def create_app():
     init_password_recovery_upgrade(app)
     from .vehicle_ops_upgrade import init_vehicle_ops_upgrade
     init_vehicle_ops_upgrade(app)
+    from .vehicle_metrics_upgrade import init_vehicle_metrics_upgrade
+    init_vehicle_metrics_upgrade(app)
     from .enterprise19_pdf_theme import init_pdf_theme
     init_pdf_theme(app)
     from .checklist_pdf_upgrade import init_checklist_pdf_upgrade
