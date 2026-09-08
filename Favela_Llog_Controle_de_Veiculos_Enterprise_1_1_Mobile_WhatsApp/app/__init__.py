@@ -78,6 +78,8 @@ def create_app():
     init_expense_pdf_upgrade(app)
     from .performance import init_performance
     init_performance(app)
+    from .receipt_ai_upgrade import init_receipt_ai_upgrade
+    init_receipt_ai_upgrade(app)
     from .cli import register_cli
     register_cli(app)
     with app.app_context():
