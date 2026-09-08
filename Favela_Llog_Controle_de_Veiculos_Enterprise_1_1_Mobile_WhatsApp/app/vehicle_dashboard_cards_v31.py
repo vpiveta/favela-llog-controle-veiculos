@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from types import SimpleNamespace
 
 from flask_login import current_user
 from sqlalchemy.orm import selectinload
@@ -23,19 +24,37 @@ def grouped_manager_issues():
     for issue in rows:
         key = issue.vehicle_id
         if key not in groups:
-            groups[key] = {
-                'vehicle': issue.vehicle,
-                'issues': [],
-                'latest': issue,
-            }
-        groups[key]['issues'].append(issue)
+            groups[key] = []
+        groups[key].append(issue)
 
-    return list(groups.values())
+    compact = []
+    for issues in groups.values():
+        latest = issues[0]
+        summary = ' • '.join(
+            f'{row.item_label} — {row.description}' for row in issues[:3]
+        )
+        if len(issues) > 3:
+            summary += f' • +{len(issues) - 3} pendência(s)'
+        compact.append(SimpleNamespace(
+            id=latest.id,
+            vehicle=latest.vehicle,
+            base_code=latest.base_code,
+            reported_by=latest.reported_by,
+            created_at=latest.created_at,
+            item_label=f'{len(issues)} pendência' + ('s' if len(issues) != 1 else ''),
+            description=summary,
+            issue_count=len(issues),
+        ))
+    return compact
 
 
 def vehicle_cards_v31_context():
+    grouped = grouped_manager_issues()
     return {
-        'manager_issue_groups': grouped_manager_issues(),
+        # Sobrescreve a lista anterior do context processor para que o template
+        # existente passe a renderizar um único card compacto por moto.
+        'manager_open_issues': grouped,
+        'manager_issue_groups': grouped,
     }
 
 
