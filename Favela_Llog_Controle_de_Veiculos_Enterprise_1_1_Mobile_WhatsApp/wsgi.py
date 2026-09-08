@@ -14,3 +14,7 @@ init_performance21(app)
 # V3: experiência por perfil, tema escuro, KM de devolução e status de abastecimento.
 from app.vehicle_dashboard_v3 import init_vehicle_dashboard_v3
 init_vehicle_dashboard_v3(app)
+
+# V3.1: cards compactos de pendências agrupadas por moto.
+from app.vehicle_dashboard_cards_v31 import init_vehicle_dashboard_cards_v31
+init_vehicle_dashboard_cards_v31(app)
