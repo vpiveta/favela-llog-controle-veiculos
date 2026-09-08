@@ -18,3 +18,7 @@ init_vehicle_dashboard_v3(app)
 # V3.1: cards compactos de pendências agrupadas por moto.
 from app.vehicle_dashboard_cards_v31 import init_vehicle_dashboard_cards_v31
 init_vehicle_dashboard_cards_v31(app)
+
+# V6: padronização final de relatório atual, histórico mensal e navegação funcional.
+from app.system_v6 import init_system_v6
+init_system_v6(app)
