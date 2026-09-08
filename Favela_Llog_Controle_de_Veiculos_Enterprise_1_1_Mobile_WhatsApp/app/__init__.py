@@ -82,6 +82,8 @@ def create_app():
     init_performance(app)
     from .receipt_ai_upgrade import init_receipt_ai_upgrade
     init_receipt_ai_upgrade(app)
+    from .oil_status_last_expense_fix import init_oil_status_last_expense_fix
+    init_oil_status_last_expense_fix(app)
     from .cli import register_cli
     register_cli(app)
     with app.app_context():
