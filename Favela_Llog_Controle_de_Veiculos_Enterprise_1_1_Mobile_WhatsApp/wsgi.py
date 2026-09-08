@@ -10,3 +10,7 @@ init_performance2(app)
 # Performance 2.1: pagina históricos pesados e mantém totais agregados no banco.
 from app.performance21 import init_performance21
 init_performance21(app)
+
+# V3: experiência por perfil, tema escuro, KM de devolução e status de abastecimento.
+from app.vehicle_dashboard_v3 import init_vehicle_dashboard_v3
+init_vehicle_dashboard_v3(app)
