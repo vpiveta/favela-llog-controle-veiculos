@@ -1,15 +1,22 @@
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
+from pathlib import Path
 
-from flask import render_template, request
+from flask import render_template, request, send_file
 from flask_login import current_user, login_required
 from sqlalchemy import extract, func
 from sqlalchemy.orm import selectinload
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas as pdfcanvas
+from pypdf import PdfReader, PdfWriter
 
 from .models import db, Expense, DailyChecklist
 from .time_utils import local_today
 
 MONTHS_PT = ('Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro')
+MOTORCYCLE_IMAGE = Path(__file__).resolve().parent / 'static' / 'img' / 'motorcycle_ref.png'
 
 
 def _bounds(year, month):
@@ -79,9 +86,34 @@ def monthly_history():
     return render_template('driver/history.html', motorcycle_expenses=motorcycle_expenses, car_expenses=car_expenses, motorcycle_total=motorcycle_total, car_total=car_total, car_plate_photo_ids=car_plate_photo_ids(car_expenses), selected_asset_type=request.args.get('asset_type','').upper(), history_pagination=None, history_months=history_months, selected_month=raw, selected_month_label=f'{MONTHS_PT[month-1]} {year}')
 
 
+def _pdf_with_motorcycle(original, title, rows, filename):
+    response = original(title, rows, filename)
+    if not str(title).lower().startswith('checklist') or not MOTORCYCLE_IMAGE.exists():
+        return response
+    try:
+        response.direct_passthrough = False
+        pdf_bytes = response.get_data()
+        overlay = BytesIO(); w, h = A4
+        c = pdfcanvas.Canvas(overlay, pagesize=A4)
+        c.drawImage(str(MOTORCYCLE_IMAGE), 67*mm, h-78*mm, 31*mm, 23*mm, preserveAspectRatio=True, mask='auto')
+        c.save(); overlay.seek(0)
+        base_reader = PdfReader(BytesIO(pdf_bytes)); overlay_reader = PdfReader(overlay)
+        if base_reader.pages:
+            base_reader.pages[0].merge_page(overlay_reader.pages[0])
+        writer = PdfWriter()
+        for page in base_reader.pages: writer.add_page(page)
+        out = BytesIO(); writer.write(out); out.seek(0)
+        return send_file(out, mimetype='application/pdf', as_attachment=False, download_name=filename)
+    except Exception:
+        return response
+
+
 def init_system_v6(app):
     app.view_functions['production.monthly_report'] = login_required(current_month_report)
     app.view_functions['main.history'] = login_required(monthly_history)
+    from . import enterprise19
+    previous_pdf = enterprise19._pdf_response
+    enterprise19._pdf_response = lambda title, rows, filename: _pdf_with_motorcycle(previous_pdf, title, rows, filename)
     @app.after_request
     def inject_v6(response):
         if response.mimetype == 'text/html':
