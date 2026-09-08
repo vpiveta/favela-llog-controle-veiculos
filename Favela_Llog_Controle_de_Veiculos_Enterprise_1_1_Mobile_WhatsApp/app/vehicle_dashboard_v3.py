@@ -156,10 +156,13 @@ def init_vehicle_dashboard_v3(app):
             return response
         try:
             html = response.get_data(as_text=True)
-            marker = 'vehicle-dashboard-v3.css'
-            if '</head>' in html and marker not in html:
-                tag = '<link rel="stylesheet" href="/static/css/vehicle-dashboard-v3.css">'
-                html = html.replace('</head>', tag + '</head>', 1)
+            tags = []
+            if 'vehicle-dashboard-v3.css' not in html:
+                tags.append('<link rel="stylesheet" href="/static/css/vehicle-dashboard-v3.css">')
+            if 'official-ui-v4.css' not in html:
+                tags.append('<link rel="stylesheet" href="/static/css/official-ui-v4.css">')
+            if tags and '</head>' in html:
+                html = html.replace('</head>', ''.join(tags) + '</head>', 1)
                 response.set_data(html)
             return response
         except Exception:
