@@ -68,6 +68,8 @@ def create_app():
     init_checklist_compliance_upgrade(app)
     from .checklist_retroactive_upgrade import init_checklist_retroactive_upgrade
     init_checklist_retroactive_upgrade(app)
+    from .checklist_retroactive_hotfix import init_checklist_retroactive_hotfix
+    init_checklist_retroactive_hotfix(app)
     from .enterprise19_pdf_theme import init_pdf_theme
     init_pdf_theme(app)
     from .checklist_pdf_upgrade import init_checklist_pdf_upgrade
