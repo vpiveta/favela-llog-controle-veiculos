@@ -1,7 +1,8 @@
 import io
 import re
 from pathlib import Path
-from flask import send_file
+
+from flask import send_file, url_for
 from PIL import Image
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -13,121 +14,336 @@ from reportlab.graphics.shapes import Drawing
 from reportlab.graphics import renderPDF
 
 from .models import StoredFile
-from . import enterprise19_pdf_theme as theme
 
 WHITE = colors.HexColor('#F7FAFC')
 MUTED = colors.HexColor('#A8B2B7')
-TEAL = colors.HexColor('#17D8DF')
-AMBER = colors.HexColor('#FF9D18')
-GREEN = colors.HexColor('#18CF58')
+TEAL = colors.HexColor('#00E6E6')
+TEAL_DARK = colors.HexColor('#073238')
+GREEN = colors.HexColor('#00E67A')
+AMBER = colors.HexColor('#FFAE28')
 RED = colors.HexColor('#FF4D57')
-BORDER = colors.HexColor('#46565C')
-DARK = colors.HexColor('#080C0E')
+BORDER = colors.HexColor('#42545B')
+DARK = colors.HexColor('#050A0D')
+PANEL = colors.HexColor('#071116')
+PANEL_2 = colors.HexColor('#0B161B')
+HEADER = colors.HexColor('#22292D')
 LOGO_PATH = Path(__file__).resolve().parent / 'static' / 'img' / 'logo.png'
+MOTORCYCLE_PATH = Path(__file__).resolve().parent / 'static' / 'img' / 'motorcycle_ref.png'
 
 
 def _txt(c, text, x, y, size=8, color=WHITE, font='Helvetica'):
-    c.setFillColor(color); c.setFont(font, size); c.drawString(x, y, str(text or '-'))
+    c.setFillColor(color)
+    c.setFont(font, size)
+    c.drawString(x, y, str(text or '-'))
 
 
 def _fit(c, text, x, y, maxw, size=8, color=WHITE, font='Helvetica-Bold'):
     text = str(text or '-')
-    while size > 5 and c.stringWidth(text, font, size) > maxw: size -= .25
+    while size > 4.8 and c.stringWidth(text, font, size) > maxw:
+        size -= .25
     _txt(c, text, x, y, size, color, font)
 
 
-def _panel(c, x, y, w, h, radius=2.4*mm):
-    c.setFillColor(colors.Color(.015,.022,.025,alpha=.91)); c.setStrokeColor(BORDER); c.setLineWidth(.7); c.roundRect(x,y,w,h,radius,fill=1,stroke=1)
+def _panel(c, x, y, w, h, radius=2.2 * mm, stroke=BORDER, fill=PANEL):
+    c.setFillColor(fill)
+    c.setStrokeColor(stroke)
+    c.setLineWidth(.65)
+    c.roundRect(x, y, w, h, radius, fill=1, stroke=1)
 
 
 def _label(c, label, value, x, y, vx, maxw):
-    _txt(c,label.upper(),x,y,6.1,TEAL,'Helvetica-Bold'); _fit(c,value,vx,y,maxw,7.2,WHITE,'Helvetica-Bold')
+    _txt(c, label.upper(), x, y, 5.8, TEAL, 'Helvetica-Bold')
+    _fit(c, value, vx, y, maxw, 6.8, WHITE, 'Helvetica-Bold')
 
 
 def _parse(rows):
-    known={'Base','Tipo','Data','Motorista que utilizou','CNH do motorista','Responsável da moto','Responsável cadastrado','CNH do responsável','Moto','Veículo','KM','Uso temporário','Justificativa','Estado geral','Avaria','Status'}
-    data,items={},[]
-    for a,b in rows:
-        if a in known:data[a]=str(b or '-')
-        else:items.append((str(a),str(b or '-')))
-    return data,items
+    known = {
+        'Base', 'Tipo', 'Data', 'Motorista que utilizou', 'CNH do motorista',
+        'Responsável da moto', 'Responsável cadastrado', 'CNH do responsável',
+        'Moto', 'Veículo', 'KM', 'Uso temporário', 'Justificativa',
+        'Estado geral', 'Avaria', 'Status', 'Telefone', 'Telefone do responsável',
+        'CPF do motorista', 'CPF do responsável', 'Cor', 'Ano'
+    }
+    data, items = {}, []
+    for a, b in rows:
+        if a in known:
+            data[a] = str(b or '-')
+        else:
+            items.append((str(a), str(b or '-')))
+    return data, items
 
 
-def _status(c,value,x,y,w=24*mm):
-    u=str(value or '').upper(); ok='OK' in u or 'BOA' in u
-    neutral='NÃO POSSUI' in u or 'NAO POSSUI' in u
-    stroke=MUTED if neutral else (GREEN if ok else AMBER)
-    fill=colors.Color(.10,.11,.12,alpha=.95) if neutral else (colors.Color(.02,.20,.08,alpha=.95) if ok else colors.Color(.20,.12,.01,alpha=.95))
-    c.setStrokeColor(stroke); c.setFillColor(fill); c.roundRect(x,y,w,5*mm,2.4*mm,fill=1,stroke=1); c.setFillColor(WHITE if neutral else stroke); c.setFont('Helvetica-Bold',6.0)
-    c.drawCentredString(x+w/2,y+1.45*mm,'NÃO POSSUI' if neutral else ('OK' if ok else 'ATENÇÃO'))
+def _status(c, value, x, y, w=24 * mm):
+    u = str(value or '').upper()
+    ok = 'OK' in u or 'BOA' in u
+    neutral = 'NÃO POSSUI' in u or 'NAO POSSUI' in u
+    stroke = MUTED if neutral else (GREEN if ok else AMBER)
+    fill = colors.HexColor('#1A1F22') if neutral else (colors.HexColor('#07351D') if ok else colors.HexColor('#3B2705'))
+    c.setStrokeColor(stroke)
+    c.setFillColor(fill)
+    c.roundRect(x, y, w, 5.1 * mm, 2.5 * mm, fill=1, stroke=1)
+    c.setFillColor(WHITE if neutral else stroke)
+    c.setFont('Helvetica-Bold', 5.8)
+    c.drawCentredString(x + w / 2, y + 1.45 * mm, 'NÃO POSSUI' if neutral else ('OK' if ok else 'ATENÇÃO'))
 
 
-def _draw_qr(c,payload,x,y,size=19*mm):
-    qr=QrCodeWidget(payload); b=qr.getBounds(); bw,bh=b[2]-b[0],b[3]-b[1]; d=Drawing(size,size,transform=[size/bw,0,0,size/bh,0,0]); d.add(qr); renderPDF.draw(d,c,x,y)
+def _draw_qr(c, payload, x, y, size=22 * mm):
+    qr = QrCodeWidget(payload)
+    b = qr.getBounds()
+    bw, bh = b[2] - b[0], b[3] - b[1]
+    d = Drawing(size, size, transform=[size / bw, 0, 0, size / bh, 0, 0])
+    d.add(qr)
+    c.setFillColor(colors.white)
+    c.roundRect(x - 1.4 * mm, y - 1.4 * mm, size + 2.8 * mm, size + 2.8 * mm, 1.2 * mm, fill=1, stroke=0)
+    renderPDF.draw(d, c, x, y)
 
 
-def _draw_logo(c,x,y,w=43*mm,h=28*mm):
+def _draw_image(c, path, x, y, w, h, opacity=1):
     try:
-        if LOGO_PATH.exists(): c.drawImage(ImageReader(str(LOGO_PATH)),x,y,w,h,preserveAspectRatio=True,mask='auto')
-    except Exception: pass
+        if path.exists():
+            c.saveState()
+            if opacity < 1 and hasattr(c, 'setFillAlpha'):
+                c.setFillAlpha(opacity)
+            c.drawImage(ImageReader(str(path)), x, y, w, h, preserveAspectRatio=True, anchor='c', mask='auto')
+            c.restoreState()
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def _draw_photo(c, raw, x, y, w, h):
-    if not raw:return False
+    if not raw:
+        return False
     try:
-        im=Image.open(io.BytesIO(raw)).convert('RGB'); im.thumbnail((700,700)); buf=io.BytesIO(); im.save(buf,'JPEG',quality=68,optimize=True); buf.seek(0); c.drawImage(ImageReader(buf),x,y,w,h,preserveAspectRatio=True,anchor='c',mask='auto'); return True
-    except Exception:return False
+        im = Image.open(io.BytesIO(raw)).convert('RGB')
+        im.thumbnail((700, 700))
+        buf = io.BytesIO()
+        im.save(buf, 'JPEG', quality=68, optimize=True)
+        buf.seek(0)
+        c.drawImage(ImageReader(buf), x, y, w, h, preserveAspectRatio=True, anchor='c', mask='auto')
+        return True
+    except Exception:
+        return False
 
 
-def checklist_pdf(title,rows,filename):
-    data,items=_parse(rows); w,h=A4; buf=io.BytesIO(); c=pdfcanvas.Canvas(buf,pagesize=A4); theme._draw_background(c,w,h)
-    margin=11*mm; content=w-2*margin
-    # Header
-    _draw_logo(c,margin,h-40*mm,49*mm,30*mm)
-    _txt(c,'CHECKLIST DIÁRIO',72*mm,h-20*mm,18,WHITE,'Helvetica-Bold'); _txt(c,'RETIRADA / DEVOLUÇÃO',73*mm,h-29*mm,10,TEAL,'Helvetica-Bold')
-    _panel(c,w-62*mm,h-39*mm,51*mm,28*mm,2*mm); _label(c,'DATA / HORA',data.get('Data','-'),w-58*mm,h-18*mm,w-38*mm,25*mm); _label(c,'BASE',data.get('Base','-'),w-58*mm,h-26*mm,w-38*mm,25*mm); _label(c,'TIPO',data.get('Tipo','-'),w-58*mm,h-34*mm,w-38*mm,25*mm)
-    # Vehicle and people
-    top=h-83*mm; lw=91*mm; gap=3*mm; rw=content-lw-gap; _panel(c,margin,top,lw,39*mm); _panel(c,margin+lw+gap,top,rw,39*mm)
-    _txt(c,'VEÍCULO',margin+5*mm,top+32*mm,8.5,TEAL,'Helvetica-Bold'); moto=data.get('Moto') or data.get('Veículo') or '-'; plate=moto.split(' - ')[-1] if ' - ' in moto else moto.split('·')[-1].strip(); model=moto.rsplit(' - ',1)[0] if ' - ' in moto else moto
-    _label(c,'PLACA',plate,margin+5*mm,top+23*mm,margin+29*mm,54*mm); _label(c,'MODELO',model,margin+5*mm,top+15*mm,margin+29*mm,54*mm); _label(c,'KM ATUAL',data.get('KM','-'),margin+5*mm,top+7*mm,margin+29*mm,45*mm)
-    rx=margin+lw+gap+5*mm; owner=data.get('Responsável da moto') or data.get('Responsável cadastrado') or '-'; _txt(c,'RESPONSÁVEL OFICIAL',rx,top+32*mm,8.2,TEAL,'Helvetica-Bold'); _label(c,'NOME',owner,rx,top+24*mm,rx+20*mm,rw-28*mm); _label(c,'CNH',data.get('CNH do responsável','-'),rx,top+17*mm,rx+20*mm,rw-28*mm); _txt(c,'UTILIZADO POR',rx,top+10*mm,8.2,TEAL,'Helvetica-Bold'); _label(c,'NOME',data.get('Motorista que utilizou','-'),rx,top+3*mm,rx+20*mm,rw-28*mm)
-    # Table
-    table_y=91*mm; table_h=top-table_y-4*mm; _panel(c,margin,table_y,content,table_h); _txt(c,'CHECKLIST DE ITENS',margin+5*mm,table_y+table_h-8*mm,8.8,TEAL,'Helvetica-Bold')
-    hy=table_y+table_h-15*mm; c.setFillColor(colors.Color(.12,.14,.15,alpha=.95)); c.rect(margin+3*mm,hy-1.6*mm,content-6*mm,7*mm,fill=1,stroke=0); _txt(c,'ITEM',margin+7*mm,hy+.5*mm,6.2,WHITE,'Helvetica-Bold'); _txt(c,'STATUS',margin+70*mm,hy+.5*mm,6.2,WHITE,'Helvetica-Bold'); _txt(c,'OBSERVAÇÃO / MOTIVO',margin+103*mm,hy+.5*mm,6.2,WHITE,'Helvetica-Bold'); _txt(c,'FOTO',margin+173*mm,hy+.5*mm,6.2,WHITE,'Helvetica-Bold')
-    m=re.search(r'-(\d+)\.pdf$',filename or ''); checklist_id=int(m.group(1)) if m else None; photos=[]
-    if checklist_id: photos=StoredFile.query.filter_by(entity_type='CHECKLIST',entity_id=checklist_id).order_by(StoredFile.id).all()
-    y=hy-6.5*mm; attention=0
-    for idx,(label,value) in enumerate(items[:10]):
-        c.setStrokeColor(colors.HexColor('#30383C')); c.line(margin+4*mm,y-1*mm,w-margin-4*mm,y-1*mm); _fit(c,label.upper(),margin+7*mm,y+1*mm,57*mm,6.4,WHITE,'Helvetica-Bold'); _status(c,value,margin+68*mm,y-1*mm,27*mm)
-        u=value.upper(); obs='---'
-        if 'ATEN' in u: attention+=1; obs=value.split('-',1)[1].strip() if '-' in value else 'Item requer atenção.'
-        elif 'NÃO POSSUI' in u or 'NAO POSSUI' in u: obs=value.split('-',1)[1].strip() if '-' in value else 'Não possui.'
-        _fit(c,obs,margin+102*mm,y+1*mm,65*mm,5.8,WHITE,'Helvetica')
-        raw=None
-        if idx < len(photos) and photos[idx].content: raw=photos[idx].content
-        if raw and _draw_photo(c,raw,margin+173*mm,y-2.2*mm,14*mm,6.5*mm): pass
-        else: _txt(c,'✓' if 'OK' in u else '—',margin+179*mm,y+.5*mm,9,GREEN if 'OK' in u else MUTED,'Helvetica-Bold')
-        y-=6.6*mm
-    att_y=table_y+3.5*mm; c.setStrokeColor(AMBER if attention else GREEN); c.roundRect(margin+4*mm,att_y,content-8*mm,10*mm,2*mm,fill=0,stroke=1); _txt(c,'⚠  ITENS COM ATENÇÃO:' if attention else '✓  CHECKLIST SEM PENDÊNCIAS',margin+8*mm,att_y+5.8*mm,6.6,AMBER if attention else GREEN,'Helvetica-Bold'); _txt(c,f'{attention} item(ns) com atenção que necessitam acompanhamento.' if attention else 'Todos os itens conferidos estão OK.',margin+8*mm,att_y+2.4*mm,5.9,WHITE)
-    # Observation
-    obs_y=67*mm; _panel(c,margin,obs_y,content,20*mm); _txt(c,'OBSERVAÇÃO GERAL',margin+5*mm,obs_y+13*mm,8.5,TEAL,'Helvetica-Bold'); note=data.get('Avaria','Sem mais avarias aparentes.'); just=data.get('Justificativa','-'); note=note if just in ('-','') else f'{note} · {just}'; _fit(c,note,margin+5*mm,obs_y+5*mm,content-10*mm,6.5,WHITE,'Helvetica')
-    # Signatures
-    sig_y=34*mm; _panel(c,margin,sig_y,content,28*mm); _txt(c,'ASSINATURAS',margin+5*mm,sig_y+21*mm,8.5,TEAL,'Helvetica-Bold'); half=(content-8*mm)/2
-    for idx,(lab,name,cnh) in enumerate((('UTILIZADO POR',data.get('Motorista que utilizou','-'),data.get('CNH do motorista','-')),('RESPONSÁVEL OFICIAL',owner,data.get('CNH do responsável','-')))):
-        x=margin+4*mm+idx*half; _txt(c,lab,x+4*mm,sig_y+16*mm,6.0,WHITE,'Helvetica-Bold'); c.setFont('Helvetica-Oblique',13); c.setFillColor(WHITE); c.drawCentredString(x+half/2,sig_y+9.5*mm,name); c.setStrokeColor(BORDER); c.line(x+8*mm,sig_y+7*mm,x+half-8*mm,sig_y+7*mm); c.setFont('Helvetica',5.5); c.setFillColor(MUTED); c.drawCentredString(x+half/2,sig_y+3.5*mm,name); c.drawCentredString(x+half/2,sig_y+1.2*mm,f'CNH: {cnh}')
-    # QR footer
-    qr_y=10*mm; _panel(c,69*mm,qr_y,72*mm,20*mm,2*mm); payload=filename or 'checklist'; _txt(c,'Consulte este checklist',72*mm,qr_y+12*mm,5.4,WHITE); _txt(c,'escaneando o QR Code.',72*mm,qr_y+8.5*mm,5.4,WHITE); _draw_qr(c,payload,100*mm,qr_y+1.5*mm,17*mm); code=(re.sub(r'[^0-9]','',filename or '')[-8:] or '00000000'); _txt(c,'CÓDIGO DO CHECKLIST',120*mm,qr_y+12*mm,5.3,MUTED,'Helvetica-Bold'); _txt(c,f'CHK-{code}',120*mm,qr_y+6*mm,9,TEAL,'Helvetica-Bold')
-    c.setFont('Helvetica-Bold',6.5); c.setFillColor(TEAL); c.drawCentredString(w/2,5.6*mm,'Favela Llog - Controle de Veículos'); c.setFont('Helvetica',5.6); c.setFillColor(WHITE); c.drawCentredString(w/2,3.2*mm,'Sonhos, Disciplina & Fé')
-    c.showPage(); c.save(); buf.seek(0); return send_file(buf,mimetype='application/pdf',as_attachment=False,download_name=filename)
+def _background(c, w, h):
+    c.setFillColor(DARK)
+    c.rect(0, 0, w, h, fill=1, stroke=0)
+
+    # Textura discreta para reproduzir o fundo preto do modelo sem duplicar o logo.
+    c.saveState()
+    if hasattr(c, 'setFillAlpha'):
+        c.setFillAlpha(.05)
+    c.setFillColor(colors.HexColor('#758087'))
+    for i in range(0, 28):
+        yy = 8 * mm + i * 10.2 * mm
+        c.rect(0, yy, w, .18 * mm, fill=1, stroke=0)
+    c.restoreState()
+
+    # Faixas ciano apenas nas bordas, deixando o centro limpo.
+    c.saveState()
+    if hasattr(c, 'setFillAlpha'):
+        c.setFillAlpha(.92)
+    c.setFillColor(TEAL)
+    c.setStrokeColor(TEAL)
+    c.setLineWidth(1.2)
+    c.line(1.5 * mm, 18 * mm, 1.5 * mm, h - 15 * mm)
+    c.line(w - 1.5 * mm, 17 * mm, w - 1.5 * mm, h - 15 * mm)
+    for yy, ww in ((24, 8), (50, 5), (82, 7), (118, 5), (166, 8), (224, 6), (270, 9)):
+        c.rect(0, yy * mm, ww * mm, 2.4 * mm, fill=1, stroke=0)
+        c.rect(w - ww * mm, (yy + 5) * mm, ww * mm, 2.1 * mm, fill=1, stroke=0)
+    c.restoreState()
+
+
+def _plate_from_moto(moto):
+    moto = str(moto or '-').strip()
+    if ' - ' in moto:
+        return moto.split(' - ')[-1].strip()
+    if '·' in moto:
+        return moto.split('·')[-1].strip()
+    match = re.search(r'\b[A-Z]{3}[0-9A-Z][0-9A-Z][0-9]{2}\b', moto.upper())
+    return match.group(0) if match else moto
+
+
+def checklist_pdf(title, rows, filename):
+    data, items = _parse(rows)
+    w, h = A4
+    buf = io.BytesIO()
+    c = pdfcanvas.Canvas(buf, pagesize=A4)
+    _background(c, w, h)
+
+    margin = 10 * mm
+    content = w - 2 * margin
+
+    # CABEÇALHO — um único logo, sem sobreposição.
+    _draw_image(c, LOGO_PATH, margin + 1 * mm, h - 43 * mm, 50 * mm, 31 * mm)
+    _txt(c, 'CONTROLE DE VEÍCULOS', margin + 9 * mm, h - 42 * mm, 5.4, MUTED, 'Helvetica-Bold')
+    _txt(c, 'CHECKLIST DIÁRIO', 71 * mm, h - 21 * mm, 18.2, WHITE, 'Helvetica-Bold')
+    _txt(c, 'RETIRADA / DEVOLUÇÃO', 73 * mm, h - 30 * mm, 10.2, TEAL, 'Helvetica-Bold')
+    c.setStrokeColor(TEAL)
+    c.setLineWidth(.7)
+    c.line(73 * mm, h - 33 * mm, 139 * mm, h - 33 * mm)
+    _txt(c, 'SEGURANÇA HOJE, MAIS ENTREGAS AMANHÃ', 76 * mm, h - 37 * mm, 4.8, MUTED, 'Helvetica-Bold')
+
+    _panel(c, w - 61 * mm, h - 43 * mm, 50 * mm, 32 * mm, 2 * mm)
+    _label(c, 'DATA / HORA', data.get('Data', '-'), w - 57 * mm, h - 20 * mm, w - 38 * mm, 24 * mm)
+    _label(c, 'BASE', data.get('Base', '-'), w - 57 * mm, h - 29 * mm, w - 38 * mm, 24 * mm)
+    _label(c, 'TIPO', data.get('Tipo', '-'), w - 57 * mm, h - 38 * mm, w - 38 * mm, 24 * mm)
+
+    moto = data.get('Moto') or data.get('Veículo') or '-'
+    plate = _plate_from_moto(moto)
+    model = moto.rsplit(' - ', 1)[0] if ' - ' in moto else moto.replace(plate, '').replace('·', '').strip(' -') or '-'
+
+    # LINHA VEÍCULO + QR + RESPONSÁVEL
+    top = h - 91 * mm
+    left_w = 94 * mm
+    qr_w = 39 * mm
+    gap = 2.2 * mm
+    right_w = content - left_w - qr_w - 2 * gap
+
+    _panel(c, margin, top, left_w, 44 * mm)
+    _panel(c, margin + left_w + gap, top, qr_w, 44 * mm, stroke=TEAL_DARK)
+    _panel(c, margin + left_w + qr_w + 2 * gap, top, right_w, 44 * mm)
+
+    _txt(c, 'VEÍCULO', margin + 5 * mm, top + 36 * mm, 8.5, TEAL, 'Helvetica-Bold')
+    _label(c, 'PLACA', plate, margin + 5 * mm, top + 27 * mm, margin + 28 * mm, 34 * mm)
+    _label(c, 'MODELO', model, margin + 5 * mm, top + 19 * mm, margin + 28 * mm, 34 * mm)
+    if data.get('Cor'):
+        _label(c, 'COR', data.get('Cor'), margin + 5 * mm, top + 11 * mm, margin + 28 * mm, 34 * mm)
+    _label(c, 'KM ATUAL', data.get('KM', '-'), margin + 5 * mm, top + 3.5 * mm, margin + 28 * mm, 34 * mm)
+    _draw_image(c, MOTORCYCLE_PATH, margin + 53 * mm, top + 4 * mm, 36 * mm, 31 * mm)
+
+    qx = margin + left_w + gap
+    _txt(c, 'QR CODE DO VEÍCULO', qx + 4 * mm, top + 36 * mm, 7.2, TEAL, 'Helvetica-Bold')
+    try:
+        qr_payload = url_for('production.search', q=plate, _external=True)
+    except Exception:
+        qr_payload = f'https://favela-llog-controle-veiculos.onrender.com/buscar?q={plate}'
+    _draw_qr(c, qr_payload, qx + 8.5 * mm, top + 11 * mm, 21 * mm)
+    c.setFont('Helvetica-Bold', 6.3)
+    c.setFillColor(TEAL)
+    c.drawCentredString(qx + qr_w / 2, top + 5 * mm, plate)
+
+    rx = margin + left_w + qr_w + 2 * gap + 4 * mm
+    owner = data.get('Responsável da moto') or data.get('Responsável cadastrado') or '-'
+    _txt(c, 'RESPONSÁVEL OFICIAL', rx, top + 36 * mm, 7.6, TEAL, 'Helvetica-Bold')
+    _label(c, 'NOME', owner, rx, top + 28 * mm, rx + 17 * mm, right_w - 24 * mm)
+    phone = data.get('Telefone do responsável') or data.get('Telefone') or '-'
+    _label(c, 'TELEFONE', phone, rx, top + 20.5 * mm, rx + 17 * mm, right_w - 24 * mm)
+    _txt(c, 'UTILIZADO POR', rx, top + 13 * mm, 7.6, TEAL, 'Helvetica-Bold')
+    _label(c, 'NOME', data.get('Motorista que utilizou', '-'), rx, top + 5 * mm, rx + 17 * mm, right_w - 24 * mm)
+
+    # CHECKLIST
+    table_y = 92 * mm
+    table_h = top - table_y - 4 * mm
+    _panel(c, margin, table_y, content, table_h)
+    _txt(c, 'CHECKLIST DE ITENS', margin + 5 * mm, table_y + table_h - 8 * mm, 8.8, TEAL, 'Helvetica-Bold')
+    hy = table_y + table_h - 15 * mm
+    c.setFillColor(HEADER)
+    c.roundRect(margin + 3 * mm, hy - 1.8 * mm, content - 6 * mm, 7.2 * mm, 1.1 * mm, fill=1, stroke=0)
+    _txt(c, 'ITEM', margin + 7 * mm, hy + .5 * mm, 6.1, WHITE, 'Helvetica-Bold')
+    _txt(c, 'STATUS', margin + 72 * mm, hy + .5 * mm, 6.1, WHITE, 'Helvetica-Bold')
+    _txt(c, 'OBSERVAÇÃO / MOTIVO', margin + 108 * mm, hy + .5 * mm, 6.1, WHITE, 'Helvetica-Bold')
+    _txt(c, 'FOTO', margin + 177 * mm, hy + .5 * mm, 6.1, WHITE, 'Helvetica-Bold')
+
+    m = re.search(r'-(\d+)\.pdf$', filename or '')
+    checklist_id = int(m.group(1)) if m else None
+    photos = []
+    if checklist_id:
+        photos = StoredFile.query.filter_by(entity_type='CHECKLIST', entity_id=checklist_id).order_by(StoredFile.id).all()
+
+    y = hy - 6.2 * mm
+    attention = 0
+    display_items = items[:10]
+    for idx, (label, value) in enumerate(display_items):
+        c.setStrokeColor(colors.HexColor('#30383C'))
+        c.line(margin + 4 * mm, y - 1 * mm, w - margin - 4 * mm, y - 1 * mm)
+        _fit(c, label.upper(), margin + 7 * mm, y + 1 * mm, 58 * mm, 6.3, WHITE, 'Helvetica-Bold')
+        _status(c, value, margin + 67 * mm, y - 1.1 * mm, 28 * mm)
+        u = value.upper()
+        obs = '---'
+        if 'ATEN' in u:
+            attention += 1
+            obs = value.split('-', 1)[1].strip() if '-' in value else 'Item requer atenção.'
+        elif 'NÃO POSSUI' in u or 'NAO POSSUI' in u:
+            obs = value.split('-', 1)[1].strip() if '-' in value else 'Não possui.'
+        _fit(c, obs, margin + 104 * mm, y + 1 * mm, 66 * mm, 5.6, WHITE, 'Helvetica')
+
+        raw = photos[idx].content if idx < len(photos) and photos[idx].content else None
+        if raw and _draw_photo(c, raw, margin + 175 * mm, y - 2.2 * mm, 13 * mm, 6.4 * mm):
+            pass
+        else:
+            c.setStrokeColor(GREEN if 'OK' in u else MUTED)
+            c.circle(margin + 181 * mm, y + .9 * mm, 2.2 * mm, fill=0, stroke=1)
+            _txt(c, 'OK' if 'OK' in u else '-', margin + 179.4 * mm, y - .1 * mm, 4.3, GREEN if 'OK' in u else MUTED, 'Helvetica-Bold')
+        y -= 6.45 * mm
+
+    att_y = table_y + 3.6 * mm
+    c.setStrokeColor(AMBER if attention else GREEN)
+    c.roundRect(margin + 4 * mm, att_y, content - 8 * mm, 10 * mm, 2 * mm, fill=0, stroke=1)
+    _txt(c, 'ITENS COM ATENÇÃO' if attention else 'CHECKLIST SEM PENDÊNCIAS', margin + 9 * mm, att_y + 5.8 * mm, 6.6, AMBER if attention else GREEN, 'Helvetica-Bold')
+    _txt(c, f'{attention} item(ns) necessitam acompanhamento.' if attention else 'Todos os itens conferidos estão OK.', margin + 9 * mm, att_y + 2.4 * mm, 5.9, WHITE)
+
+    # OBSERVAÇÃO GERAL
+    obs_y = 66 * mm
+    _panel(c, margin, obs_y, content, 20 * mm)
+    _txt(c, 'OBSERVAÇÃO GERAL', margin + 5 * mm, obs_y + 13 * mm, 8.4, TEAL, 'Helvetica-Bold')
+    note = data.get('Avaria', 'Moto entregue em boas condições. Sem mais avarias aparentes.')
+    just = data.get('Justificativa', '-')
+    if just not in ('-', ''):
+        note = f'{note} · {just}'
+    _fit(c, note, margin + 5 * mm, obs_y + 5 * mm, content - 10 * mm, 6.4, WHITE, 'Helvetica')
+
+    # ASSINATURAS
+    sig_y = 31 * mm
+    _panel(c, margin, sig_y, content, 30 * mm)
+    _txt(c, 'ASSINATURAS', margin + 5 * mm, sig_y + 23 * mm, 8.5, TEAL, 'Helvetica-Bold')
+    half = content / 2
+    signature_data = (
+        ('UTILIZADO POR', data.get('Motorista que utilizou', '-'), data.get('CPF do motorista') or data.get('CNH do motorista', '-')),
+        ('RESPONSÁVEL OFICIAL', owner, data.get('CPF do responsável') or data.get('CNH do responsável', '-')),
+    )
+    for idx, (lab, name, doc) in enumerate(signature_data):
+        x = margin + idx * half
+        if idx:
+            c.setStrokeColor(BORDER)
+            c.line(x, sig_y + 4 * mm, x, sig_y + 22 * mm)
+        c.setFont('Helvetica-Bold', 5.9)
+        c.setFillColor(WHITE)
+        c.drawCentredString(x + half / 2, sig_y + 18 * mm, lab)
+        c.setFont('Helvetica-Oblique', 13)
+        c.drawCentredString(x + half / 2, sig_y + 10.5 * mm, name)
+        c.setStrokeColor(colors.HexColor('#AAB7BC'))
+        c.line(x + 14 * mm, sig_y + 8 * mm, x + half - 14 * mm, sig_y + 8 * mm)
+        c.setFont('Helvetica', 5.4)
+        c.setFillColor(MUTED)
+        c.drawCentredString(x + half / 2, sig_y + 4.5 * mm, name)
+        if doc and doc != '-':
+            c.drawCentredString(x + half / 2, sig_y + 2 * mm, f'Documento: {doc}')
+
+    # RODAPÉ
+    _txt(c, 'Favela Llog - Controle de Veículos', 66 * mm, 14 * mm, 7.0, TEAL, 'Helvetica-Bold')
+    _txt(c, 'Sonhos, Disciplina & Fé', 83 * mm, 9.5 * mm, 6.2, WHITE)
+    _txt(c, f'QR do veículo: {plate}', margin, 5.3 * mm, 4.8, MUTED)
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return send_file(buf, mimetype='application/pdf', as_attachment=False, download_name=filename)
 
 
 def init_checklist_pdf_upgrade(app):
     from . import enterprise19
-    original=enterprise19._pdf_response
-    def wrapper(title,rows,filename):
+    original = enterprise19._pdf_response
+
+    def wrapper(title, rows, filename):
         if str(title).lower().startswith('checklist'):
-            try:return checklist_pdf(title,rows,filename)
+            try:
+                return checklist_pdf(title, rows, filename)
             except Exception:
-                app.logger.exception('Falha ao gerar PDF visual do checklist; usando PDF de segurança'); return original(title,rows,filename)
-        return original(title,rows,filename)
-    enterprise19._pdf_response=wrapper
+                app.logger.exception('Falha ao gerar PDF visual do checklist; usando PDF de segurança')
+                return original(title, rows, filename)
+        return original(title, rows, filename)
+
+    enterprise19._pdf_response = wrapper
