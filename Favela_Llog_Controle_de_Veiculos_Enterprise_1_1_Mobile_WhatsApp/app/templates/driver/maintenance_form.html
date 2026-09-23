@@ -19,11 +19,15 @@
   <label>Valor total da manutenção (R$)<input name="amount" inputmode="decimal" value="{{request.form.get('amount','')}}" placeholder="0,00" required></label>
   <label>Quilometragem<input type="number" name="odometer" min="0" value="{{request.form.get('odometer','')}}" required></label>
   <label>Oficina<input name="workshop" value="{{request.form.get('workshop','')}}"></label>
-  <label class="wide">Descrição<textarea name="description" required>{{request.form.get('description','')}}</textarea></label>
+  <label>Tipo da manutenção<select name="maintenance_type"><option value="">Selecione</option><option>Preventiva</option><option>Corretiva</option><option>Elétrica</option><option>Motor</option><option>Freios</option><option>Pneus</option><option>Transmissão / corrente</option><option>Revisão</option><option>Outros</option></select></label>
+  <label>Valor da mão de obra (R$)<input name="labor_amount" inputmode="decimal" value="{{request.form.get('labor_amount','')}}" placeholder="0,00"></label>
+  <label class="wide">Peças trocadas / utilizadas<textarea name="parts_description" placeholder="Ex.: pastilha de freio, relação, pneu traseiro...">{{request.form.get('parts_description','')}}</textarea><small>Registre as peças utilizadas nesta manutenção. Elas ficarão no histórico da placa.</small></label>
+  <label class="wide">Descrição livre do serviço<textarea name="description" required placeholder="Descreva o diagnóstico, serviço executado e qualquer observação técnica.">{{request.form.get('description','')}}</textarea></label>
   <label class="check wide"><input type="checkbox" name="is_oil_change" id="oilChange" {% if request.form.get('is_oil_change')=='on' %}checked{% endif %}> Esta manutenção inclui troca de óleo</label>
   <div class="wide oil-fields" id="oilFields"><label>Tipo de óleo<input name="oil_type" value="{{request.form.get('oil_type','')}}"></label><label>Valor exato da troca de óleo (R$)<input name="oil_amount" id="oilAmount" inputmode="decimal" value="{{request.form.get('oil_amount','')}}" placeholder="0,00"></label><div class="readonly"><b>Próxima troca</b><span>Calculada automaticamente em +990 km</span></div></div>
   <label class="wide camera-field"><span>Foto da nota</span><span class="camera-button">📷 Abrir câmera</span><input class="camera-input" type="file" name="receipt" accept="image/*,application/pdf" required data-preview="maintenancePreview"><small>Envie foto ou PDF da NF. O arquivo ficará vinculado ao histórico da manutenção.</small></label>
   <img id="maintenancePreview" class="receipt-preview" alt="Pré-visualização da nota" hidden>
+  <label class="wide camera-field"><span>Fotos ou vídeos da moto</span><input class="camera-input" type="file" name="maintenance_media" accept="image/*,video/mp4,video/webm,video/quicktime" multiple><small>Opcional. Registre avaria, peça, condição da moto ou o serviço executado. Pode enviar mais de um arquivo.</small></label>
   <label class="wide">Observação<textarea name="notes">{{request.form.get('notes','')}}</textarea></label>
   <button class="wide">🤖 Salvar e analisar com IA</button>
 </form>
