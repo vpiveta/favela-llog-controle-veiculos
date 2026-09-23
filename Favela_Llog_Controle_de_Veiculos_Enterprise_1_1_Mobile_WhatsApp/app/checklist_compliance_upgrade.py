@@ -166,17 +166,4 @@ def init_checklist_compliance_upgrade(app):
     app.add_url_rule('/admin/checklist-compliance/<int:case_id>/<decision>', 'checklist_compliance_decide', login_required(_decide), methods=['POST'])
     app.view_functions['main.admin_checklists'] = login_required(_admin_checklists_current_month)
 
-    @app.before_request
-    def force_driver_compliance():
-        if not current_user.is_authenticated or current_user.role != 'DRIVER': return None
-        if request.endpoint in {'auth.logout','checklist_compliance','checklist_compliance_justify','static'} or (request.endpoint or '').startswith('static'):
-            return None
-        try:
-            cases=_ensure_cases(current_user)
-        except Exception:
-            app.logger.exception('Falha ao validar pendência de checklist')
-            return None
-        if cases:
-            # Falta simples: obriga justificar. Dois dias seguidos: fica bloqueado até aprovação.
-            return redirect(url_for('checklist_compliance'))
-        return None
+    # Pendências de checklist continuam disponíveis para relatório, mas não bloqueiam mais o acesso.
