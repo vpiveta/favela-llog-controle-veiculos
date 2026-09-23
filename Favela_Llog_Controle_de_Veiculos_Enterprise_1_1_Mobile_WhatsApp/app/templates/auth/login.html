@@ -1,1 +1,76 @@
-{% extends 'base.html' %}{% block title %}Login · Favela Llog Controle de Veículos{% endblock %}{% block content %}<section class="login-card"><img src="{{ url_for('static', filename='img/logo.png') }}" class="login-logo"><h2>Favela Llog</h2><p>Controle de Veículos</p><form method="post"><label>Usuário<input name="username" value="{{username_value or ''}}" required autofocus autocomplete="username"></label><label>Senha<input name="password" type="password" required autocomplete="current-password"></label><label id="driverPlateField">Placa da moto <small class="optional">somente motorista</small><input name="plate" value="{{plate_value or ''}}" placeholder="ABC1D23" maxlength="10" autocomplete="off"></label>{% if need_justification %}<div class="notice"><b>Moto de outro responsável</b><br>Responsável cadastrado: {{owner_name}}. A liberação precisa ser aprovada pelo gerente da base.</div><label>Justificativa para utilização<textarea name="justification" required placeholder="Informe por que precisa utilizar esta moto"></textarea></label><button>Solicitar autorização</button>{% else %}<button>Entrar</button>{% endif %}</form><a class="login-help" href="{{url_for('production.forgot_password')}}">Esqueci minha senha</a><small>Gestão inteligente da frota</small></section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Acesso · Favela Llog Controle de Veículos{% endblock %}
+{% block content %}
+<section class="login-card">
+  <img src="{{ url_for('static', filename='img/logo.png') }}" class="login-logo">
+  <h2>Favela Llog</h2><p>Controle de Veículos</p>
+
+  {% if plate_value %}
+    <div class="notice"><b>🏍 Moto identificada</b><br>Placa {{plate_value}}. Agora informe seu usuário e senha.</div>
+    <form method="post">
+      <input type="hidden" name="plate" value="{{plate_value}}">
+      <label>Usuário<input name="username" value="{{username_value or ''}}" required autofocus autocomplete="username"></label>
+      <label>Senha<input name="password" type="password" required autocomplete="current-password"></label>
+      {% if need_justification %}<label>Justificativa para utilização<textarea name="justification" required placeholder="Informe por que precisa utilizar esta moto"></textarea></label><button>Continuar</button>{% else %}<button>Entrar na moto {{plate_value}}</button>{% endif %}
+    </form>
+    <a class="login-help" href="{{url_for('auth.login')}}">← Ler outra moto</a>
+  {% else %}
+    <div id="driverAccess">
+      <h3>Motorista</h3>
+      <p class="muted">Leia o QR Code colado na moto. Depois liberamos o usuário e a senha.</p>
+      <button type="button" id="startQrCamera">📷 Ler QR Code da moto</button>
+      <div id="qrReader" hidden style="margin-top:12px">
+        <video id="qrVideo" playsinline autoplay muted style="width:100%;border-radius:14px"></video>
+        <p class="muted" id="qrStatus">Aponte a câmera para o QR Code da moto.</p>
+      </div>
+    </div>
+    <hr style="margin:22px 0">
+    <details id="staffAccess" {% if username_value %}open{% endif %}>
+      <summary style="cursor:pointer;font-weight:700">Oficina ou ADM</summary>
+      <p class="muted">Acesso sem placa.</p>
+      <form method="post" style="margin-top:12px">
+        <input type="hidden" name="plate" value="">
+        <label>Usuário<input name="username" value="{{username_value or ''}}" required autocomplete="username"></label>
+        <label>Senha<input name="password" type="password" required autocomplete="current-password"></label>
+        <button>Entrar</button>
+      </form>
+    </details>
+  {% endif %}
+  <a class="login-help" href="{{url_for('production.forgot_password')}}">Esqueci minha senha</a>
+  <small>Gestão inteligente da frota</small>
+</section>
+{% if not plate_value %}
+<script>
+(() => {
+ const btn=document.getElementById('startQrCamera'), box=document.getElementById('qrReader'), video=document.getElementById('qrVideo'), status=document.getElementById('qrStatus');
+ let stream=null, detector=null, running=false;
+ function useQr(raw){
+   try{
+     const u=new URL(raw, location.origin);
+     const m=u.pathname.match(/\/moto\/([A-Za-z0-9]+)/i);
+     if(m){ stop(); location.href='/moto/'+m[1].toUpperCase(); return true; }
+     const plate=u.searchParams.get('plate');
+     if(plate){ stop(); location.href='{{url_for("auth.login")}}?plate='+encodeURIComponent(plate); return true; }
+   }catch(e){}
+   status.textContent='QR Code não reconhecido como uma moto deste sistema.';
+   return false;
+ }
+ function stop(){running=false;if(stream)stream.getTracks().forEach(t=>t.stop());}
+ async function scan(){
+   if(!running)return;
+   try{const codes=await detector.detect(video);if(codes.length&&useQr(codes[0].rawValue))return;}catch(e){}
+   requestAnimationFrame(scan);
+ }
+ btn.addEventListener('click',async()=>{
+   if(!('BarcodeDetector' in window)){status.textContent='Este navegador não suporta leitura pela câmera. Use a câmera do celular para ler o QR Code colado na moto.';box.hidden=false;return;}
+   try{
+     detector=new BarcodeDetector({formats:['qr_code']});
+     stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+     video.srcObject=stream;box.hidden=false;running=true;status.textContent='Aponte a câmera para o QR Code da moto.';scan();
+   }catch(e){box.hidden=false;status.textContent='Não foi possível abrir a câmera. Libere a permissão de câmera ou leia o QR pela câmera do celular.';}
+ });
+ window.addEventListener('pagehide',stop);
+})();
+</script>
+{% endif %}
+{% endblock %}
