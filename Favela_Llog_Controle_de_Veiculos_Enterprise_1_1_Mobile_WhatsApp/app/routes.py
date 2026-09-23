@@ -840,6 +840,30 @@ def vehicles():
     drivers = User.query.filter_by(role='DRIVER', active=True).order_by(User.name).all()
     return render_template('admin/vehicles.html', vehicles=Vehicle.query.order_by(Vehicle.plate).all(), drivers=drivers)
 
+@main_bp.route('/admin/vehicles/<int:vehicle_id>/timeline')
+@login_required
+@admin_required
+def vehicle_timeline(vehicle_id):
+    vehicle = db.session.get(Vehicle, vehicle_id) or abort(404)
+    expenses = Expense.query.filter_by(vehicle_id=vehicle.id, is_deleted=False).order_by(Expense.expense_date.desc(), Expense.id.desc()).all()
+    checklists = DailyChecklist.query.filter_by(vehicle_id=vehicle.id, is_deleted=False).order_by(DailyChecklist.checklist_date.desc(), DailyChecklist.id.desc()).all()
+    oil_changes = OilChange.query.filter_by(vehicle_id=vehicle.id).order_by(OilChange.change_date.desc(), OilChange.id.desc()).all()
+    events = []
+    for row in checklists:
+        events.append({'date': row.checklist_date, 'kind': 'CHECKLIST', 'title': f"Checklist de {'devolução' if row.checklist_type == 'DEVOLUCAO' else 'retirada'}", 'km': row.odometer, 'user': row.driver.name if row.driver else '-', 'detail': row.damage_description or row.borrow_reason or 'Checklist concluído', 'obj': row})
+    for row in expenses:
+        if row.expense_type == 'FUEL':
+            title = 'Abastecimento'
+            detail = f"R$ {row.amount}" + (f" · {row.fuel.liters} L" if row.fuel and row.fuel.liters else '')
+        else:
+            title = 'Manutenção'
+            detail = row.maintenance.description if row.maintenance else (row.notes or 'Manutenção registrada')
+        events.append({'date': row.expense_date, 'kind': row.expense_type, 'title': title, 'km': row.odometer, 'user': row.created_by.name if row.created_by else '-', 'detail': detail, 'obj': row})
+    events.sort(key=lambda x: (x['date'], getattr(x['obj'], 'id', 0)), reverse=True)
+    total_fuel = sum((Decimal(e.amount) for e in expenses if e.expense_type == 'FUEL'), Decimal('0'))
+    total_maintenance = sum((Decimal(e.amount) for e in expenses if e.expense_type == 'MAINTENANCE'), Decimal('0'))
+    return render_template('admin/vehicle_timeline.html', vehicle=vehicle, events=events, expenses=expenses, oil_changes=oil_changes, total_fuel=total_fuel, total_maintenance=total_maintenance)
+
 @main_bp.route('/admin/vehicles/<int:vehicle_id>/edit', methods=['POST'])
 @login_required
 @admin_required
