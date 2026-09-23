@@ -861,6 +861,27 @@ def assign_vehicle_driver(vehicle, driver_id):
             other.driver_id = None
     vehicle.driver_id = driver_id or None
 
+@main_bp.route('/moto/<plate>')
+def motorcycle_qr_entry(plate):
+    normalized = ''.join(ch for ch in (plate or '').upper() if ch.isalnum())[:10]
+    vehicle = Vehicle.query.filter_by(plate=normalized, vehicle_type='MOTORCYCLE').first_or_404()
+    return redirect(url_for('auth.login', plate=vehicle.plate))
+
+@main_bp.route('/admin/vehicles/<int:vehicle_id>/qr')
+@login_required
+@admin_required
+def vehicle_qr(vehicle_id):
+    import qrcode
+    vehicle = db.session.get(Vehicle, vehicle_id) or abort(404)
+    if vehicle.vehicle_type != 'MOTORCYCLE':
+        abort(404)
+    target = url_for('main.motorcycle_qr_entry', plate=vehicle.plate, _external=True)
+    image = qrcode.make(target)
+    output = BytesIO()
+    image.save(output, format='PNG')
+    output.seek(0)
+    return send_file(output, mimetype='image/png', download_name=f'QR-{vehicle.plate}.png', as_attachment=request.args.get('download') == '1')
+
 @main_bp.route('/admin/vehicles', methods=['GET','POST'])
 @login_required
 @admin_required
