@@ -139,7 +139,7 @@ if(hasDamage){hasDamage.addEventListener('change',syncDamage);syncDamage();}
       previousSignature=sig;
     }catch(e){}
   }
-  poll();setInterval(poll,8000);
+  poll();setInterval(poll,60000);
 })();
 
 // Modais administrativos.
