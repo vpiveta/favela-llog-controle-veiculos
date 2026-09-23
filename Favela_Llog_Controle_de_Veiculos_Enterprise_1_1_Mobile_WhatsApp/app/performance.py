@@ -120,7 +120,18 @@ def fast_dashboard():
     except Exception: pass
     vehicle_scope = active_vehicle.id if (not current_user.is_admin and active_vehicle) else None
     oil_statuses = fast_build_oil_statuses(vehicle_scope) if current_user.is_admin or vehicle_scope else []
-    alerts = fast_build_oil_alerts(vehicle_scope) if current_user.is_admin or vehicle_scope else []
+    # Reaproveita o status já calculado no dashboard; evita varrer óleo/checklists duas vezes.
+    alertable = [s for s in oil_statuses if s.get('oil_change') and s.get('remaining_km', 999999) <= 200]
+    alerts = []
+    if alertable:
+        vehicle_ids = [s['vehicle'].id for s in alertable]
+        change_ids = [s['oil_change'].id for s in alertable]
+        saved_rows = OilAlertStatus.query.filter(OilAlertStatus.vehicle_id.in_(vehicle_ids), OilAlertStatus.oil_change_id.in_(change_ids)).all()
+        sent_map = {(s.vehicle_id, s.oil_change_id, s.level): s for s in saved_rows}
+        for info in alertable:
+            remaining = info['remaining_km']; title = 'Troca de óleo vencida' if remaining <= 0 else ('Troca de óleo urgente' if remaining <= 50 else 'Troca de óleo próxima')
+            saved = sent_map.get((info['vehicle'].id, info['oil_change'].id, info['level']))
+            alerts.append({**info, 'title': title, 'detail': f"Base {info['base_km']} km · Atual {info['current_km']} km · Rodados {info['traveled_km']} km · " + (f"Restam {remaining} km" if remaining >= 0 else f"Vencida há {abs(remaining)} km"), 'message_sent': bool(saved and saved.message_sent_at), 'sent_at': saved.message_sent_at if saved else None})
     mq = Vehicle.query.options(selectinload(Vehicle.driver)).filter_by(vehicle_type='MOTORCYCLE', status='MAINTENANCE').order_by(Vehicle.plate)
     maintenance_motos = mq.all(); maintenance_vehicles = []
     if maintenance_motos:
@@ -172,6 +183,9 @@ def _install_indexes_once():
         'CREATE INDEX IF NOT EXISTS ix_checklist_driver_date_type ON daily_checklist (driver_id, checklist_date, checklist_type)',
         'CREATE INDEX IF NOT EXISTS ix_oil_change_vehicle_date ON oil_change (vehicle_id, change_date)',
         'CREATE INDEX IF NOT EXISTS ix_notification_base_read ON admin_notification (base_code, is_read)',
+        'CREATE INDEX IF NOT EXISTS ix_notification_read_id ON admin_notification (is_read, id)',
+        'CREATE INDEX IF NOT EXISTS ix_expense_created_date_deleted ON expense (created_by_id, expense_date, is_deleted)',
+        'CREATE INDEX IF NOT EXISTS ix_maintenance_status_expense ON maintenance_detail (status, expense_id)',
     ]
     for sql in statements: db.session.execute(text(sql))
     db.session.commit()
