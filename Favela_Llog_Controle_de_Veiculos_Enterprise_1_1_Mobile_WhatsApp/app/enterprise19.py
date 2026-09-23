@@ -45,19 +45,22 @@ def _login_view():
         username = request.form.get('username','').strip()
         password = request.form.get('password','')
         plate_value = _plate(request.form.get('plate'))
-        user = User.query.filter_by(username=username).first()
+        # Login não deve depender de maiúsculas/minúsculas nem espaços no cadastro.
+        user = User.query.filter(db.func.lower(db.func.trim(User.username)) == username.lower()).first()
         if not user or not user.active or not user.check_password(password):
             flash('Usuário ou senha inválidos.', 'danger')
             return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
         if getattr(user, 'access_blocked', False):
             flash('Seu acesso está bloqueado. Procure o gerente da base.', 'danger')
             return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
+        # Perfis administrativos e OFICINA nunca dependem de placa.
+        role = (user.role or '').strip().upper()
         if user.is_admin:
             login_user(user)
             session.pop('active_vehicle_id', None)
             session.pop('active_vehicle_justification', None)
             return redirect(url_for('main.dashboard'))
-        if user.role == 'WORKSHOP':
+        if role == 'WORKSHOP':
             login_user(user)
             session.pop('active_vehicle_id', None)
             session.pop('active_vehicle_justification', None)
