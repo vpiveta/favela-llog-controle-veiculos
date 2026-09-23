@@ -503,6 +503,8 @@ def checklist_new():
             odometer = request.form.get('odometer', type=int)
             if odometer is None or odometer < 0:
                 raise ValueError('Informe a quilometragem atual da moto.')
+            if vehicle.current_km is not None and odometer < vehicle.current_km:
+                raise ValueError(f'O KM informado ({odometer}) não pode ser menor que o KM atual da moto ({vehicle.current_km}).')
             reason = request.form.get('borrow_reason','').strip()
             if borrowed and checklist_type == 'RETIRADA' and not reason:
                 raise ValueError('Informe o motivo do uso da moto de outro motorista.')
