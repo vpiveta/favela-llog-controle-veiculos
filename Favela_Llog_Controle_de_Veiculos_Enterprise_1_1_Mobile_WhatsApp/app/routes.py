@@ -716,7 +716,14 @@ def users():
     if request.method == 'POST':
         try:
             if request.form['password'] != request.form['confirm_password']: raise ValueError('As senhas não conferem.')
-            u = User(name=request.form['name'], username=request.form['username'].strip(), email=request.form.get('email'), phone=request.form.get('phone'), role=request.form['role'], must_change_password=True)
+            username = request.form['username'].strip()
+            if User.query.filter(db.func.lower(User.username) == username.lower()).first():
+                raise ValueError(f'O login "{username}" já existe. Escolha outro login ou edite o usuário existente.')
+            role = request.form['role']
+            if role not in {'DRIVER','WORKSHOP','ADMIN_BASE','ADMIN','ADMIN_GLOBAL'}:
+                raise ValueError('Perfil inválido.')
+            base_code = (request.form.get('base_code') or current_user.base_code or 'SDA9').strip().upper()
+            u = User(name=request.form['name'].strip(), username=username, email=(request.form.get('email') or '').strip() or None, phone=(request.form.get('phone') or '').strip() or None, role=role, base_code=base_code, must_change_password=True)
             u.set_password(request.form['password']); db.session.add(u); db.session.commit(); flash('Usuário criado.', 'success')
         except Exception as exc: db.session.rollback(); flash(str(exc), 'danger')
     return render_template('admin/users.html', users=User.query.order_by(User.active.desc(), User.name).all())
