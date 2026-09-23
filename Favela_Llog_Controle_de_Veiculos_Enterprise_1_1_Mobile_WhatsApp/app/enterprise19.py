@@ -53,14 +53,20 @@ def _login_view():
         if getattr(user, 'access_blocked', False):
             flash('Seu acesso está bloqueado. Procure o gerente da base.', 'danger')
             return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
-        # Perfis administrativos e OFICINA nunca dependem de placa.
+        # Compatibilidade: cadastros antigos do acesso "oficina" podem ter sido
+        # gravados como DRIVER. O acesso reservado da oficina nunca depende de placa.
         role = (user.role or '').strip().upper()
+        workshop_login = role == 'WORKSHOP' or username.strip().lower() == 'oficina'
+        if workshop_login and role != 'WORKSHOP':
+            user.role = 'WORKSHOP'
+            db.session.commit()
+            role = 'WORKSHOP'
         if user.is_admin:
             login_user(user)
             session.pop('active_vehicle_id', None)
             session.pop('active_vehicle_justification', None)
             return redirect(url_for('main.dashboard'))
-        if role == 'WORKSHOP':
+        if workshop_login:
             login_user(user)
             session.pop('active_vehicle_id', None)
             session.pop('active_vehicle_justification', None)
