@@ -315,7 +315,7 @@ def maintenance_monitor():
     rows = q.order_by(Expense.expense_date.desc(), Expense.id.desc()).all()
     in_progress = [e for e in rows if e.maintenance and e.maintenance.status == 'IN_PROGRESS']
     completed = [e for e in rows if e.maintenance and e.maintenance.status == 'COMPLETED']
-    return render_template('maintenance_monitor.html', in_progress=in_progress, completed=completed)
+    return render_template('maintenance_monitor.html', in_progress=in_progress, completed=completed, today=local_today())
 
 @main_bp.route('/maintenance/new', methods=['GET','POST'])
 @login_required
