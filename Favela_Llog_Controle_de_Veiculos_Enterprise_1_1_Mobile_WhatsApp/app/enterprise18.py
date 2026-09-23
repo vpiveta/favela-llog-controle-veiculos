@@ -232,12 +232,18 @@ def edit_user(user_id):
         user.phone = (request.form.get('phone') or '').strip() or None
         user.active = request.form.get('active') == 'on'
         user.access_blocked = request.form.get('access_blocked') == 'on'
+        role = request.form.get('role', user.role)
         if is_global_admin():
-            role = request.form.get('role', user.role)
             if role not in ('DRIVER', 'WORKSHOP', 'ADMIN_BASE', 'ADMIN', 'ADMIN_GLOBAL'):
                 raise ValueError('Perfil inválido.')
             user.role = role
             user.base_code = normalize_base(request.form.get('base_code') or user.base_code)
+        elif is_base_admin():
+            # Gerente da base pode administrar acessos operacionais da própria base.
+            if user.role != 'ADMIN_BASE':
+                if role not in ('DRIVER', 'WORKSHOP'):
+                    raise ValueError('O gerente pode selecionar apenas Motorista ou Oficina.')
+                user.role = role
         db.session.add(AuditLog(
             action='EDIT_USER', entity_type='USER', entity_id=user.id,
             description=f'Cadastro atualizado de {old_name} para {user.name}. Base: {user.base_code}.',
