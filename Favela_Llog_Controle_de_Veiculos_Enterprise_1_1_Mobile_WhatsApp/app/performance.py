@@ -55,8 +55,10 @@ def fast_build_oil_statuses(vehicle_id=None):
             result.append({'vehicle': vehicle, 'oil_change': None, 'base_km': None, 'current_km': vehicle.current_km or 0,
                            'traveled_km': 0, 'remaining_km': 990, 'target_km': None, 'level': 'neutral', 'status_label': 'Sem troca registrada'})
             continue
-        current_km = checklist_max.get(vehicle.id, last.odometer)
-        current_km = max(current_km or 0, last.odometer)
+        # KM atual da moto é a fonte principal. O checklist só pode elevar esse valor.
+        # Antes usávamos apenas o checklist; isso gerava números negativos/absurdos
+        # quando o KM era atualizado por abastecimento, manutenção ou cadastro.
+        current_km = max(vehicle.current_km or 0, checklist_max.get(vehicle.id, 0) or 0, last.odometer or 0)
         traveled = max(0, current_km - last.odometer)
         remaining = 990 - traveled
         target = last.odometer + 990
