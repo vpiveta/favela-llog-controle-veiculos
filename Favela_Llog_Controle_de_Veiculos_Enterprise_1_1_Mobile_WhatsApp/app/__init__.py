@@ -84,6 +84,8 @@ def create_app():
     init_receipt_ai_upgrade(app)
     from .oil_status_last_expense_fix import init_oil_status_last_expense_fix
     init_oil_status_last_expense_fix(app)
+    from .workshop_access import init_workshop_access
+    init_workshop_access(app)
     from .cli import register_cli
     register_cli(app)
     with app.app_context():
