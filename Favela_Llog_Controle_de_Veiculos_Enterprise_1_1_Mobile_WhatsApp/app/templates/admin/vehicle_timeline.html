@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}{{vehicle.plate}} · Histórico da moto{% endblock %}
+{% block content %}
+<section class="v6-admin-page">
+<header class="page-head v6-admin-head"><div><span class="v6-kicker">FICHA DA MOTO</span><h2>{{vehicle.plate}}</h2><p>{{vehicle.brand}} {{vehicle.model}}{% if vehicle.year %} · {{vehicle.year}}{% endif %} · {{vehicle.base_code}}</p></div><a class="btn alt" href="{{url_for('main.vehicles')}}">← Frota</a></header>
+<div class="v6-summary-row">
+<article><span>🏍</span><div><strong>{{'{:,}'.format(vehicle.current_km or 0).replace(',','.')}}</strong><small>KM atual</small></div></article>
+<article><span>👤</span><div><strong>{{vehicle.driver.name if vehicle.driver else 'Sem vínculo'}}</strong><small>Motorista atual</small></div></article>
+<article><span>⛽</span><div><strong>R$ {{'%.2f'|format(total_fuel)|replace('.',',')}}</strong><small>Abastecimentos</small></div></article>
+<article><span>🔧</span><div><strong>R$ {{'%.2f'|format(total_maintenance)|replace('.',',')}}</strong><small>Manutenções</small></div></article>
+</div>
+<section class="panel v6-list-panel">
+<div class="v6-list-toolbar"><div><b>Linha do tempo da placa</b><small style="display:block">Checklist, KM, abastecimento e manutenção permanecem ligados a esta moto mesmo quando o motorista muda.</small></div><span class="pill {{'red' if vehicle.status=='MAINTENANCE' else 'green'}}">{{'Em manutenção' if vehicle.status=='MAINTENANCE' else 'Disponível'}}</span></div>
+<div class="v5-mini-list">
+{% for e in events %}
+<article><div><b>{{'☑' if e.kind=='CHECKLIST' else ('⛽' if e.kind=='FUEL' else '🔧')}} {{e.title}}</b><small style="display:block">{{e.date.strftime('%d/%m/%Y')}} · {{e.user}}{% if e.km is not none %} · {{'{:,}'.format(e.km).replace(',','.')}} km{% endif %}</small><p style="margin:6px 0 0">{{e.detail}}</p>{% if e.kind=='MAINTENANCE' %}<a href="{{url_for('main.expense_receipt',expense_id=e.obj.id)}}" target="_blank">Ver NF/comprovante</a>{% elif e.kind=='CHECKLIST' %}<a href="{{url_for('main.checklist_detail',checklist_id=e.obj.id)}}">Ver checklist</a>{% endif %}</div></article>
+{% else %}<div class="empty-state">Ainda não há movimentações registradas para esta placa.</div>{% endfor %}
+</div>
+</section>
+</section>
+{% endblock %}
