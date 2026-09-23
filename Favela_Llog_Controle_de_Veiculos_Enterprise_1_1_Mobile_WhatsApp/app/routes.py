@@ -14,7 +14,7 @@ from .time_utils import local_today, utc_now
 
 auth_bp = Blueprint('auth', __name__)
 main_bp = Blueprint('main', __name__)
-ALLOWED = {'png','jpg','jpeg','webp','pdf'}
+ALLOWED = {'png','jpg','jpeg','webp','pdf','mp4','mov','webm'}
 
 def admin_required(fn):
     @wraps(fn)
@@ -360,11 +360,17 @@ def maintenance_new():
                 workshop=request.form.get('workshop','').strip() or None,
                 status=maintenance_status, is_oil_change=is_oil_change,
                 oil_amount=oil_amount,
+                maintenance_type=request.form.get('maintenance_type','').strip() or None,
+                labor_amount=(parse_money('labor_amount','valor da mão de obra') if (request.form.get('labor_amount') or '').strip() else None),
+                parts_description=request.form.get('parts_description','').strip() or None,
             )
             if km and km > (vehicle.current_km or 0): vehicle.current_km = km
             vehicle.status = 'AVAILABLE' if same or exp.maintenance.status == 'COMPLETED' else 'MAINTENANCE'
             db.session.add(exp); db.session.flush()
             exp.receipt_path = save_receipt(request.files.get('receipt'), exp)
+            for media in request.files.getlist('maintenance_media'):
+                if media and media.filename:
+                    store_uploaded_file(media, 'MAINTENANCE_MEDIA', 'MOTORCYCLE_EXPENSE', exp.id, images_only=False)
             if is_oil_change:
                 # O novo ciclo sempre começa exatamente no KM informado no dia.
                 base_km = km
@@ -406,21 +412,40 @@ def complete_maintenance(expense_id):
 @main_bp.route('/history')
 @login_required
 def history():
-    q = Expense.query.filter_by(is_deleted=False)
-    if not current_user.is_admin: q = q.filter_by(created_by_id=current_user.id)
+    from sqlalchemy import extract, func
+    today = local_today()
+    raw = (request.args.get('month') or f'{today.year:04d}-{today.month:02d}').strip()
+    try:
+        year, month = map(int, raw.split('-', 1))
+        start = datetime(year, month, 1).date()
+    except Exception:
+        year, month = today.year, today.month
+        raw = f'{year:04d}-{month:02d}'
+        start = datetime(year, month, 1).date()
+    end = datetime(year + 1, 1, 1).date() if month == 12 else datetime(year, month + 1, 1).date()
+    base_q = Expense.query.filter_by(is_deleted=False)
+    if not current_user.is_admin:
+        base_q = base_q.filter_by(created_by_id=current_user.id)
     kind = request.args.get('type')
-    if kind: q = q.filter_by(expense_type=kind)
-    expenses = q.order_by(Expense.expense_date.desc(), Expense.id.desc()).all()
-    motorcycle_expenses = [expense for expense in expenses if expense.asset_type == 'MOTORCYCLE']
-    car_expenses = [expense for expense in expenses if expense.asset_type == 'CAR']
-    return render_template(
-        'driver/history.html', motorcycle_expenses=motorcycle_expenses,
-        car_expenses=car_expenses,
+    if kind:
+        base_q = base_q.filter_by(expense_type=kind)
+    month_q = base_q.filter(Expense.expense_date >= start, Expense.expense_date < end)
+    expenses = month_q.order_by(Expense.expense_date.desc(), Expense.id.desc()).all()
+    counts_q = db.session.query(extract('year', Expense.expense_date), extract('month', Expense.expense_date), func.count(Expense.id)).filter(Expense.is_deleted.is_(False))
+    if not current_user.is_admin:
+        counts_q = counts_q.filter(Expense.created_by_id == current_user.id)
+    if kind:
+        counts_q = counts_q.filter(Expense.expense_type == kind)
+    counts = counts_q.group_by(extract('year', Expense.expense_date), extract('month', Expense.expense_date)).order_by(extract('year', Expense.expense_date).desc(), extract('month', Expense.expense_date).desc()).all()
+    month_names = ('Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro')
+    history_months = [{'value':f'{int(y):04d}-{int(m):02d}','label':f'{month_names[int(m)-1]} {int(y)}','count':count,'active':f'{int(y):04d}-{int(m):02d}'==raw} for y,m,count in counts]
+    motorcycle_expenses = [e for e in expenses if e.asset_type == 'MOTORCYCLE']
+    car_expenses = [e for e in expenses if e.asset_type == 'CAR']
+    return render_template('driver/history.html', motorcycle_expenses=motorcycle_expenses, car_expenses=car_expenses,
         motorcycle_total=sum((Decimal(e.amount) for e in motorcycle_expenses), Decimal('0')),
         car_total=sum((Decimal(e.amount) for e in car_expenses), Decimal('0')),
-        car_plate_photo_ids=car_plate_photo_ids(car_expenses),
-        selected_asset_type=request.args.get('asset_type','').upper(),
-    )
+        car_plate_photo_ids=car_plate_photo_ids(car_expenses), selected_asset_type=request.args.get('asset_type','').upper(),
+        history_months=history_months, selected_month=raw, selected_month_label=f'{month_names[month-1]} {year}')
 
 @main_bp.route('/expense/<int:expense_id>/receipt')
 @login_required
