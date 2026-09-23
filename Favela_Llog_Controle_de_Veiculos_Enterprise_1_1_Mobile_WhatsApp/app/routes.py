@@ -780,13 +780,15 @@ def borrow_vehicle_summary(vehicle_id):
 @login_required
 @admin_required
 def notifications_status():
-    unread = AdminNotification.query.filter_by(is_read=False).order_by(AdminNotification.id.desc()).all()
+    # O polling precisa ser barato: conta no banco e carrega somente a última notificação.
+    unread_q = AdminNotification.query.filter_by(is_read=False)
+    unread_count = unread_q.count()
+    latest = unread_q.order_by(AdminNotification.id.desc()).first()
     oil_alerts = [a for a in build_oil_alerts() if not a.get('message_sent')]
-    latest = unread[0] if unread else None
     oil_signature = ','.join(f"{a['vehicle'].id}-{a['oil_change'].id}-{a['level']}" for a in oil_alerts)
     latest_oil = oil_alerts[0] if oil_alerts else None
     return jsonify({
-        'count': len(unread) + len(oil_alerts),
+        'count': unread_count + len(oil_alerts),
         'latest_id': f"{latest.id if latest else 0}:{oil_signature}",
         'latest_title': latest.title if latest else (latest_oil['title'] if latest_oil else ''),
         'latest_message': latest.message if latest else (f"{latest_oil['vehicle'].plate} · {latest_oil['detail']}" if latest_oil else ''),
