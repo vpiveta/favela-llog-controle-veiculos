@@ -7,6 +7,7 @@ def init_workshop_access(app):
     allowed = {
         'auth.logout',
         'main.maintenance_new',
+        'main.maintenance_part_new',
         'main.maintenance_monitor',
         'production.change_password',
         'static',
