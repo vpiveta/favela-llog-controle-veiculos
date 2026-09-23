@@ -15,6 +15,7 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(20), nullable=False, default='DRIVER')
     base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
     active = db.Column(db.Boolean, default=True, nullable=False)
+    access_blocked = db.Column(db.Boolean, default=False, nullable=False)
     must_change_password = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now)
     vehicle = db.relationship('Vehicle', back_populates='driver', uselist=False)
