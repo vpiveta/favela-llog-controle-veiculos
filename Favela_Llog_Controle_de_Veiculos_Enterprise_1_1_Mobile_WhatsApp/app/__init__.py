@@ -32,7 +32,7 @@ def create_app():
         SECRET_KEY=os.getenv('SECRET_KEY', 'dev-change-me'),
         SQLALCHEMY_DATABASE_URI=db_url or f"sqlite:///{root / 'instance' / 'fleet.db'}",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        MAX_CONTENT_LENGTH=8 * 1024 * 1024,
+        MAX_CONTENT_LENGTH=30 * 1024 * 1024,
         UPLOAD_FOLDER=str(root / 'uploads' / 'receipts'),
         APP_TIMEZONE=os.getenv('APP_TIMEZONE', 'America/Sao_Paulo'),
     )
