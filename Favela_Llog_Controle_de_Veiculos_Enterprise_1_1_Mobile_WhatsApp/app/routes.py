@@ -8,7 +8,7 @@ from urllib.parse import quote
 from flask import Blueprint, current_app, flash, redirect, render_template, request, send_from_directory, send_file, url_for, abort, jsonify
 from flask_login import current_user, login_required, login_user, logout_user
 from werkzeug.utils import secure_filename
-from .models import db, User, Vehicle, Expense, FuelDetail, MaintenanceDetail, OilChange, AlertRecipient, StoredFile, DailyChecklist, AdminNotification, OilAlertStatus, AuditLog
+from .models import db, User, Vehicle, Expense, FuelDetail, MaintenanceDetail, MaintenancePartCatalog, OilChange, AlertRecipient, StoredFile, DailyChecklist, AdminNotification, OilAlertStatus, AuditLog
 from .storage import is_configured as storage_is_configured, upload_bytes, download_bytes, SupabaseStorageError
 from .time_utils import local_today, utc_now
 
@@ -317,6 +317,27 @@ def maintenance_monitor():
     completed = [e for e in rows if e.maintenance and e.maintenance.status == 'COMPLETED']
     return render_template('maintenance_monitor.html', in_progress=in_progress, completed=completed, today=local_today())
 
+@main_bp.route('/maintenance/parts/new', methods=['POST'])
+@login_required
+def maintenance_part_new():
+    if not (current_user.is_admin or current_user.role == 'WORKSHOP'):
+        abort(403)
+    try:
+        name = (request.form.get('part_name') or '').strip()
+        if not name:
+            raise ValueError('Informe o nome da peça.')
+        price_raw = (request.form.get('part_price') or '').strip()
+        price = parse_money('part_price', 'valor da peça') if price_raw else None
+        exists = MaintenancePartCatalog.query.filter(db.func.lower(MaintenancePartCatalog.name) == name.lower()).first()
+        if exists:
+            raise ValueError('Esta peça já está cadastrada.')
+        db.session.add(MaintenancePartCatalog(name=name, category=(request.form.get('part_category') or '').strip() or None, default_price=price, base_code=current_user.base_code))
+        db.session.commit()
+        flash('Peça cadastrada no catálogo da oficina.', 'success')
+    except Exception as exc:
+        db.session.rollback(); flash(str(exc), 'danger')
+    return redirect(url_for('main.maintenance_new'))
+
 @main_bp.route('/maintenance/new', methods=['GET','POST'])
 @login_required
 def maintenance_new():
@@ -380,7 +401,8 @@ def maintenance_new():
             db.session.commit(); flash('Manutenção registrada e status da moto atualizado.', 'success'); return redirect(url_for('main.maintenance_new') if workshop_user else url_for('main.history'))
         except Exception as exc:
             db.session.rollback(); flash(str(exc), 'danger')
-    return render_template('driver/maintenance_form.html', vehicles=vehicles, vehicle=vehicle, today=local_today().isoformat())
+    parts_catalog = MaintenancePartCatalog.query.filter_by(active=True).order_by(MaintenancePartCatalog.name).all()
+    return render_template('driver/maintenance_form.html', vehicles=vehicles, vehicle=vehicle, today=local_today().isoformat(), parts_catalog=parts_catalog)
 
 
 @main_bp.route('/admin/maintenance/<int:expense_id>/complete', methods=['POST'])
