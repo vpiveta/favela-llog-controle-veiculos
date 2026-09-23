@@ -96,6 +96,16 @@ class MaintenanceDetail(db.Model):
     expense_id = db.Column(db.Integer, db.ForeignKey('expense.id'), unique=True, nullable=False)
     expense = db.relationship('Expense', back_populates='maintenance')
 
+class MaintenancePartCatalog(db.Model):
+    __tablename__ = 'maintenance_part_catalog'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(160), nullable=False, index=True)
+    category = db.Column(db.String(100))
+    default_price = db.Column(db.Numeric(12,2))
+    base_code = db.Column(db.String(10), nullable=False, default='SDA9', index=True)
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
 class OilChange(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     change_date = db.Column(db.Date, nullable=False)
