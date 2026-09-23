@@ -44,6 +44,7 @@ def _login_view():
     if request.method == 'POST':
         username = request.form.get('username','').strip()
         password = request.form.get('password','')
+        access_mode = (request.form.get('access_mode') or '').strip().lower()
         plate_value = _plate(request.form.get('plate'))
         # Login não deve depender de maiúsculas/minúsculas nem espaços no cadastro.
         user = User.query.filter(db.func.lower(db.func.trim(User.username)) == username.lower()).first()
@@ -53,9 +54,15 @@ def _login_view():
         if getattr(user, 'access_blocked', False):
             flash('Seu acesso está bloqueado. Procure o gerente da base.', 'danger')
             return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
-        # O comportamento de acesso depende apenas do perfil cadastrado.
+        # A tela separa explicitamente acesso de equipe e motorista.
+        # No modo EQUIPE, a placa nunca participa da autenticação.
         role = (user.role or '').strip().upper()
         workshop_login = role == 'WORKSHOP'
+        if access_mode == 'staff':
+            if not (user.is_admin or workshop_login):
+                flash('Este acesso é exclusivo para Oficina ou ADM.', 'danger')
+                return render_template('auth/login.html', need_justification=False, plate_value='', username_value=username)
+            plate_value = ''
         if user.is_admin:
             login_user(user)
             session.pop('active_vehicle_id', None)
