@@ -8,6 +8,7 @@
   {% if plate_value %}
     <div class="notice"><b>🏍 Moto identificada</b><br>Placa {{plate_value}}. Agora informe seu usuário e senha.</div>
     <form method="post">
+      <input type="hidden" name="access_mode" value="driver">
       <input type="hidden" name="plate" value="{{plate_value}}">
       <label>Usuário<input name="username" value="{{username_value or ''}}" required autofocus autocomplete="username"></label>
       <label>Senha<input name="password" type="password" required autocomplete="current-password"></label>
@@ -29,6 +30,7 @@
       <summary style="cursor:pointer;font-weight:700">Oficina ou ADM</summary>
       <p class="muted">Acesso sem placa.</p>
       <form method="post" style="margin-top:12px">
+        <input type="hidden" name="access_mode" value="staff">
         <input type="hidden" name="plate" value="">
         <label>Usuário<input name="username" value="{{username_value or ''}}" required autocomplete="username"></label>
         <label>Senha<input name="password" type="password" required autocomplete="current-password"></label>
