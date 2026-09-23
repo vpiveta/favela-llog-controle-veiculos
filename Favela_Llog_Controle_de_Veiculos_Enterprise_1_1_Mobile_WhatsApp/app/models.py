@@ -90,6 +90,9 @@ class MaintenanceDetail(db.Model):
     status = db.Column(db.String(30), default='COMPLETED')
     is_oil_change = db.Column(db.Boolean, default=False, nullable=False)
     oil_amount = db.Column(db.Numeric(12,2))
+    maintenance_type = db.Column(db.String(120))
+    labor_amount = db.Column(db.Numeric(12,2))
+    parts_description = db.Column(db.Text)
     expense_id = db.Column(db.Integer, db.ForeignKey('expense.id'), unique=True, nullable=False)
     expense = db.relationship('Expense', back_populates='maintenance')
 
