@@ -254,6 +254,8 @@ def fuel_new():
             odometer = request.form.get('odometer', type=int)
             if odometer is None or odometer < 0:
                 raise ValueError(f"Informe a quilometragem atual d{'o carro' if selected_type == 'CAR' else 'a moto'}.")
+            if vehicle.current_km is not None and odometer < vehicle.current_km:
+                raise ValueError(f'O KM informado ({odometer}) não pode ser menor que o KM atual do veículo ({vehicle.current_km}).')
             amount = parse_money('amount', 'valor do abastecimento')
             liters = parse_money('liters', 'volume em litros') if request.form.get('liters','').strip() else None
             exp = Expense(
@@ -297,11 +299,16 @@ def fuel_new():
 @main_bp.route('/maintenance/new', methods=['GET','POST'])
 @login_required
 def maintenance_new():
-    vehicles = Vehicle.query.filter_by(vehicle_type='MOTORCYCLE').order_by(Vehicle.plate).all() if current_user.is_admin else []
+    workshop_user = current_user.role == 'WORKSHOP'
+    vehicles = Vehicle.query.filter_by(vehicle_type='MOTORCYCLE').order_by(Vehicle.plate).all() if (current_user.is_admin or workshop_user) else []
     vehicle = selected_vehicle()
     if request.method == 'POST':
-        vehicle = selected_vehicle()
-        if not vehicle: flash('Nenhuma moto vinculada.', 'danger'); return redirect(request.url)
+        if workshop_user:
+            vehicle = db.session.get(Vehicle, request.form.get('motorcycle_vehicle_id', type=int))
+            if vehicle and (vehicle.vehicle_type != 'MOTORCYCLE' or vehicle.base_code != current_user.base_code): vehicle = None
+        else:
+            vehicle = selected_vehicle()
+        if not vehicle: flash('Selecione a moto da manutenção.', 'danger'); return redirect(request.url)
         try:
             start = datetime.strptime(request.form['start_date'],'%Y-%m-%d').date()
             same = request.form.get('same_day') == 'on'
@@ -310,6 +317,8 @@ def maintenance_new():
             km = request.form.get('odometer', type=int)
             if km is None or km < 0:
                 raise ValueError('Informe a quilometragem atual da moto.')
+            if vehicle.current_km is not None and km < vehicle.current_km:
+                raise ValueError(f'O KM informado ({km}) não pode ser menor que o KM atual da moto ({vehicle.current_km}).')
             amount = parse_money('amount', 'valor total da manutenção')
             is_oil_change = request.form.get('is_oil_change') == 'on'
             oil_amount = parse_money('oil_amount', 'valor da troca de óleo') if is_oil_change else None
@@ -341,7 +350,7 @@ def maintenance_new():
                 db.session.add(OilChange(change_date=start, odometer=base_km, next_change_km=base_km+990, next_change_date=None, oil_type=request.form.get('oil_type'), vehicle_id=vehicle.id, expense_id=exp.id))
             linked_driver = vehicle.driver.name if vehicle.driver else 'Sem motorista vinculado'
             add_admin_notification('MAINTENANCE', 'Nova manutenção', f'{current_user.name} registrou manutenção da moto {vehicle.plate} (responsável: {linked_driver}): {exp.maintenance.description}.')
-            db.session.commit(); flash('Manutenção registrada.', 'success'); return redirect(url_for('main.history'))
+            db.session.commit(); flash('Manutenção registrada e status da moto atualizado.', 'success'); return redirect(url_for('main.maintenance_new') if workshop_user else url_for('main.history'))
         except Exception as exc:
             db.session.rollback(); flash(str(exc), 'danger')
     return render_template('driver/maintenance_form.html', vehicles=vehicles, vehicle=vehicle, today=local_today().isoformat())
