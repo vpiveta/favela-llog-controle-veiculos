@@ -296,6 +296,27 @@ def fuel_new():
         selected_type=selected_type, today=local_today().isoformat(),
     )
 
+@main_bp.route('/maintenance/monitor')
+@login_required
+def maintenance_monitor():
+    q = Expense.query.join(MaintenanceDetail).filter(
+        Expense.expense_type == 'MAINTENANCE',
+        Expense.is_deleted.is_(False),
+        Expense.asset_type == 'MOTORCYCLE',
+    )
+    if not current_user.is_admin:
+        if current_user.role == 'WORKSHOP':
+            q = q.filter(Expense.created_by_id == current_user.id)
+        else:
+            if not current_user.vehicle:
+                q = q.filter(db.false())
+            else:
+                q = q.filter(Expense.vehicle_id == current_user.vehicle.id)
+    rows = q.order_by(Expense.expense_date.desc(), Expense.id.desc()).all()
+    in_progress = [e for e in rows if e.maintenance and e.maintenance.status == 'IN_PROGRESS']
+    completed = [e for e in rows if e.maintenance and e.maintenance.status == 'COMPLETED']
+    return render_template('maintenance_monitor.html', in_progress=in_progress, completed=completed)
+
 @main_bp.route('/maintenance/new', methods=['GET','POST'])
 @login_required
 def maintenance_new():
