@@ -40,7 +40,7 @@ def active_vehicle():
 def _login_view():
     if current_user.is_authenticated:
         return redirect(url_for('main.dashboard'))
-    plate_value = ''
+    plate_value = _plate(request.args.get('plate'))
     if request.method == 'POST':
         username = request.form.get('username','').strip()
         password = request.form.get('password','')
@@ -85,7 +85,7 @@ def _login_view():
         session['active_vehicle_id'] = vehicle.id
         session['active_vehicle_justification'] = justification
         return redirect(url_for('main.dashboard'))
-    return render_template('auth/login.html', need_justification=False, plate_value='')
+    return render_template('auth/login.html', need_justification=False, plate_value=plate_value)
 
 @enterprise19_bp.post('/admin/vehicle-use/<int:req_id>/<decision>')
 @login_required
