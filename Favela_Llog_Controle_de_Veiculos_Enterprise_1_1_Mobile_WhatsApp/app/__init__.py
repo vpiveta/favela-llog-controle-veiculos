@@ -92,7 +92,7 @@ def create_app():
             from sqlalchemy import inspect, text
             inspector = inspect(db.engine)
             migrations = {
-                'user': [('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'")],
+                'user': [('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'"), ('access_blocked','BOOLEAN NOT NULL DEFAULT FALSE')],
                 'alert_recipient': [('phone', 'VARCHAR(30)')],
                 'vehicle': [('vehicle_type', "VARCHAR(20) NOT NULL DEFAULT 'MOTORCYCLE'"), ('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'")],
                 'expense': [('asset_type', "VARCHAR(20) NOT NULL DEFAULT 'MOTORCYCLE'"), ('base_code', "VARCHAR(10) NOT NULL DEFAULT 'SDA9'"), ('authorized_by_id','INTEGER'), ('responsible_driver_id','INTEGER'), ('is_deleted','BOOLEAN NOT NULL DEFAULT FALSE'),('deleted_at','TIMESTAMP'), ('deleted_by_id','INTEGER'),('deletion_reason','TEXT')],
