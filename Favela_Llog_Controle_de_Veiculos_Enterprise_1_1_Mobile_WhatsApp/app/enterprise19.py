@@ -70,24 +70,16 @@ def _login_view():
             session['active_vehicle_justification'] = ''
             return redirect(url_for('main.dashboard'))
         owner_name = vehicle.driver.name if vehicle.driver else 'outro motorista'
-        approved = VehicleUseRequest.query.filter_by(requester_id=user.id, vehicle_id=vehicle.id, status='APPROVED').order_by(VehicleUseRequest.decided_at.desc()).first()
-        if approved and approved.decided_at and approved.decided_at >= utc_now() - timedelta(hours=24):
-            approved.status = 'USED'
-            db.session.commit()
-            login_user(user)
-            session['active_vehicle_id'] = vehicle.id
-            session['active_vehicle_justification'] = approved.justification
-            return redirect(url_for('main.dashboard'))
         justification = (request.form.get('justification') or '').strip()
         if not justification:
-            flash(f'A moto {vehicle.plate} está vinculada a {owner_name}. Informe a justificativa para solicitar autorização.', 'warning')
+            flash(f'A moto {vehicle.plate} está vinculada a {owner_name}. Informe o motivo do uso temporário.', 'warning')
             return render_template('auth/login.html', need_justification=True, owner_name=owner_name, plate_value=plate_value, username_value=username)
-        pending = VehicleUseRequest.query.filter_by(requester_id=user.id, vehicle_id=vehicle.id, status='PENDING').first()
-        if not pending:
-            db.session.add(VehicleUseRequest(requester_id=user.id, vehicle_id=vehicle.id, owner_driver_id=vehicle.driver_id, justification=justification, base_code=user.base_code, status='PENDING'))
-            db.session.commit()
-        flash('Solicitação enviada ao gerente. Após a aprovação, entre novamente com a mesma placa.', 'warning')
-        return render_template('auth/login.html', need_justification=True, owner_name=owner_name, plate_value=plate_value, username_value=username)
+        # Uso temporário não bloqueia o motorista aguardando aprovação.
+        # O checklist registra a moto, responsável e justificativa e gera o alerta administrativo.
+        login_user(user)
+        session['active_vehicle_id'] = vehicle.id
+        session['active_vehicle_justification'] = justification
+        return redirect(url_for('main.dashboard'))
     return render_template('auth/login.html', need_justification=False, plate_value='')
 
 @enterprise19_bp.post('/admin/vehicle-use/<int:req_id>/<decision>')
