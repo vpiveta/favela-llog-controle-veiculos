@@ -49,20 +49,25 @@ def _login_view():
         if not user or not user.active or not user.check_password(password):
             flash('Usuário ou senha inválidos.', 'danger')
             return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
+        if getattr(user, 'access_blocked', False):
+            flash('Seu acesso está bloqueado. Procure o gerente da base.', 'danger')
+            return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
         if user.is_admin:
             login_user(user)
             session.pop('active_vehicle_id', None)
             session.pop('active_vehicle_justification', None)
             return redirect(url_for('main.dashboard'))
+        if user.role == 'WORKSHOP':
+            login_user(user)
+            session.pop('active_vehicle_id', None)
+            session.pop('active_vehicle_justification', None)
+            return redirect(url_for('main.maintenance_new'))
         if not plate_value:
             flash('Informe a placa da moto que será utilizada.', 'danger')
             return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
         vehicle = Vehicle.query.filter_by(plate=plate_value, vehicle_type='MOTORCYCLE').first()
         if not vehicle or vehicle.base_code != user.base_code:
             flash('Placa não encontrada na sua base.', 'danger')
-            return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
-        if vehicle.status == 'BLOCKED':
-            flash('Esta moto está bloqueada para uso. Procure o gerente da base.', 'danger')
             return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
         if not vehicle.driver_id or vehicle.driver_id == user.id:
             login_user(user)
