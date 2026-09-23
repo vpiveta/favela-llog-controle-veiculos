@@ -231,9 +231,10 @@ def edit_user(user_id):
         user.email = (request.form.get('email') or '').strip() or None
         user.phone = (request.form.get('phone') or '').strip() or None
         user.active = request.form.get('active') == 'on'
+        user.access_blocked = request.form.get('access_blocked') == 'on'
         if is_global_admin():
             role = request.form.get('role', user.role)
-            if role not in ('DRIVER', 'ADMIN_BASE', 'ADMIN', 'ADMIN_GLOBAL'):
+            if role not in ('DRIVER', 'WORKSHOP', 'ADMIN_BASE', 'ADMIN', 'ADMIN_GLOBAL'):
                 raise ValueError('Perfil inválido.')
             user.role = role
             user.base_code = normalize_base(request.form.get('base_code') or user.base_code)
