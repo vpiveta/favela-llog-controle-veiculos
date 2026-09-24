@@ -357,6 +357,33 @@ def maintenance_catalog_new():
     return redirect(url_for('main.maintenance_new'))
 
 
+@main_bp.route('/maintenance/dashboard')
+@login_required
+def maintenance_dashboard():
+    if not (current_user.is_admin or current_user.role == 'WORKSHOP'):
+        abort(403)
+    from sqlalchemy import func
+    from decimal import Decimal
+    q = Expense.query.join(MaintenanceDetail).filter(
+        Expense.expense_type == 'MAINTENANCE',
+        Expense.is_deleted.is_(False)
+    )
+    if not current_user.is_global_admin:
+        q = q.filter(Expense.base_code == current_user.base_code)
+    rows = q.order_by(Expense.expense_date.desc(), Expense.id.desc()).all()
+    total_maint = len(rows)
+    completed = sum(1 for e in rows if e.maintenance and e.maintenance.status == 'COMPLETED')
+    in_progress = sum(1 for e in rows if e.maintenance and e.maintenance.status == 'IN_PROGRESS')
+    total_value = sum((Decimal(str(e.amount or 0)) for e in rows), Decimal('0'))
+    labor_value = sum((Decimal(str(e.maintenance.labor_amount or 0)) for e in rows if e.maintenance), Decimal('0'))
+    parts_value = max(Decimal('0'), total_value - labor_value)
+    service_count = sum(1 for e in rows if e.maintenance and e.maintenance.description)
+    return render_template('maintenance_dashboard.html',
+        total_maint=total_maint, completed=completed, in_progress=in_progress,
+        total_value=total_value, labor_value=labor_value, parts_value=parts_value,
+        service_count=service_count, recent=rows[:12])
+
+
 @main_bp.route('/maintenance/new', methods=['GET','POST'])
 @login_required
 def maintenance_new():
