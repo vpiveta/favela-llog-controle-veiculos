@@ -87,9 +87,14 @@ def _login_view():
             session.pop('active_vehicle_id', None)
             session.pop('active_vehicle_justification', None)
             return redirect(url_for('main.maintenance_new'))
+        # A placa só é exigida para um motorista que chegou pelo fluxo do QR Code.
+        # Sem access_mode=driver, nunca transformar o login comum em validação de placa.
+        if access_mode != 'driver':
+            flash('Para motorista, leia primeiro o QR Code da moto. Oficina e ADM devem usar a entrada de equipe.', 'danger')
+            return render_template('auth/login.html', need_justification=False, plate_value='', username_value=username)
         if not plate_value:
-            flash('Informe a placa da moto que será utilizada.', 'danger')
-            return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
+            flash('Leia novamente o QR Code da moto para continuar.', 'danger')
+            return render_template('auth/login.html', need_justification=False, plate_value='', username_value=username)
         vehicle = Vehicle.query.filter_by(plate=plate_value, vehicle_type='MOTORCYCLE').first()
         if not vehicle or vehicle.base_code != user.base_code:
             flash('Placa não encontrada na sua base.', 'danger')
