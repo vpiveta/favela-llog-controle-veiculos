@@ -16,7 +16,13 @@
   <label class="check"><input type="checkbox" name="same_day" id="sameDay" {% if request.method!='POST' or request.form.get('same_day')=='on' %}checked{% endif %}> Serviço no mesmo dia</label>
   <label id="endDateWrap">Data de retirada<input type="date" name="end_date" value="{{request.form.get('end_date','')}}"></label>
   <label>Status<select name="status"><option value="IN_PROGRESS" {% if request.form.get('status')=='IN_PROGRESS' %}selected{% endif %}>Em manutenção</option><option value="COMPLETED" {% if request.form.get('status')=='COMPLETED' %}selected{% endif %}>Concluída</option></select></label>
-  <label>Valor total da manutenção (R$)<input name="amount" inputmode="decimal" value="{{request.form.get('amount','')}}" placeholder="0,00" required></label>
+  <label>Valor total da manutenção (R$)<input id="maintenanceAmount" name="amount" inputmode="decimal" value="{{request.form.get('amount','')}}" placeholder="0,00" required readonly><small>Calculado automaticamente pelos itens selecionados.</small></label>
+  <label class="wide">Serviços e peças realizados
+    <select name="catalog_item_ids" id="maintenanceCatalog" multiple size="8" style="min-height:180px">
+      {% for item in maintenance_catalog %}<option value="{{item.id}}" data-price="{{item.default_price or 0}}" {% if item.id|string in request.form.getlist('catalog_item_ids') %}selected{% endif %}>{{'Serviço' if item.item_type=='SERVICE' else 'Peça'}} · {{item.name}} · R$ {{'%.2f'|format(item.default_price or 0)}}</option>{% endfor %}
+    </select>
+    <small>Selecione um ou vários itens. No computador use Ctrl para múltiplos; no celular toque nos itens. O total é somado automaticamente.</small>
+  </label>
   <label>Quilometragem<input type="number" name="odometer" min="0" value="{{request.form.get('odometer','')}}" required></label>
   <label>Oficina<input name="workshop" value="{{request.form.get('workshop','')}}"></label>
   <label>Tipo da manutenção<select name="maintenance_type"><option value="">Selecione</option><option>Preventiva</option><option>Corretiva</option><option>Elétrica</option><option>Motor</option><option>Freios</option><option>Pneus</option><option>Transmissão / corrente</option><option>Revisão</option><option>Outros</option></select></label>
@@ -32,5 +38,18 @@
   <label class="wide">Observação<textarea name="notes">{{request.form.get('notes','')}}</textarea></label>
   <button class="wide">🤖 Salvar e analisar com IA</button>
 </form>
-{% if current_user.is_admin or current_user.role=='WORKSHOP' %}<section class="panel" style="margin-top:18px"><h3>Catálogo de peças</h3><p class="muted">Cadastre peças recorrentes para padronizar os lançamentos da oficina.</p><form method="post" action="{{url_for('main.maintenance_part_new')}}" class="form-grid"><label>Peça<input name="part_name" required placeholder="Ex.: Pastilha de freio"></label><label>Categoria<input name="part_category" placeholder="Freios, motor, elétrica..."></label><label>Valor padrão (R$)<input name="part_price" inputmode="decimal" placeholder="0,00"></label><button>Cadastrar peça</button></form></section>{% endif %}
+{% if current_user.is_admin or current_user.role=='WORKSHOP' %}<section class="panel" style="margin-top:18px"><h3>Catálogo de serviços e peças</h3><p class="muted">Cadastre uma vez o serviço/peça e o valor. Depois basta selecionar no lançamento da manutenção.</p><form method="post" action="{{url_for('main.maintenance_catalog_new')}}" class="form-grid"><label>Tipo<select name="catalog_type"><option value="SERVICE">Serviço</option><option value="PART">Peça</option></select></label><label>Nome<input name="catalog_name" required placeholder="Ex.: Troca de relação"></label><label>Categoria<input name="catalog_category" placeholder="Motor, freios, elétrica..."></label><label>Valor padrão (R$)<input name="catalog_price" inputmode="decimal" required placeholder="0,00"></label><button class="wide">Cadastrar no catálogo</button></form></section><section class="panel" style="margin-top:18px"><h3>Catálogo antigo de peças</h3><p class="muted">Cadastre peças recorrentes para padronizar os lançamentos da oficina.</p><form method="post" action="{{url_for('main.maintenance_part_new')}}" class="form-grid"><label>Peça<input name="part_name" required placeholder="Ex.: Pastilha de freio"></label><label>Categoria<input name="part_category" placeholder="Freios, motor, elétrica..."></label><label>Valor padrão (R$)<input name="part_price" inputmode="decimal" placeholder="0,00"></label><button>Cadastrar peça</button></form></section>{% endif %}
 {% endblock %}
+
+<script>
+(function(){
+ const sel=document.getElementById('maintenanceCatalog'), total=document.getElementById('maintenanceAmount');
+ if(!sel||!total)return;
+ function calc(){
+   let sum=0;
+   Array.from(sel.selectedOptions).forEach(o=>sum += parseFloat(o.dataset.price||'0')||0);
+   total.value=sum.toFixed(2).replace('.',',');
+ }
+ sel.addEventListener('change',calc); calc();
+})();
+</script>
