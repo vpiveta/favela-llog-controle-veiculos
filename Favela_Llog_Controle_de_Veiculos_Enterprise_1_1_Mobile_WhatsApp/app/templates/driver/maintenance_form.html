@@ -37,18 +37,4 @@
   <label class="wide">Observação<textarea name="notes">{{request.form.get('notes','')}}</textarea></label>
   <button class="wide">🤖 Salvar e analisar com IA</button>
 </form>
-{% if current_user.is_admin or current_user.role=='WORKSHOP' %}<section class="panel" style="margin-top:18px"><h3>Catálogo de serviços e peças</h3><p class="muted">Cadastre uma vez o serviço/peça e o valor. Depois basta selecionar no lançamento da manutenção.</p><form method="post" action="{{url_for('main.maintenance_catalog_new')}}" class="form-grid"><label>Tipo<select name="catalog_type"><option value="SERVICE">Serviço</option><option value="PART">Peça</option></select></label><label>Nome<input name="catalog_name" required placeholder="Ex.: Troca de relação"></label><label>Categoria<input name="catalog_category" placeholder="Motor, freios, elétrica..."></label><label>Valor padrão (R$)<input name="catalog_price" inputmode="decimal" required placeholder="0,00"></label><button class="wide">Cadastrar no catálogo</button></form></section><section class="panel" style="margin-top:18px"><h3>Catálogo antigo de peças</h3><p class="muted">Cadastre peças recorrentes para padronizar os lançamentos da oficina.</p><form method="post" action="{{url_for('main.maintenance_part_new')}}" class="form-grid"><label>Peça<input name="part_name" required placeholder="Ex.: Pastilha de freio"></label><label>Categoria<input name="part_category" placeholder="Freios, motor, elétrica..."></label><label>Valor padrão (R$)<input name="part_price" inputmode="decimal" placeholder="0,00"></label><button>Cadastrar peça</button></form></section>{% endif %}
-{% endblock %}
-
-<script>
-(function(){
- const box=document.getElementById('maintenanceCatalog'), total=document.getElementById('maintenanceAmount');
- if(!box||!total)return;
- function calc(){
-   let sum=0;
-   box.querySelectorAll('input[name="catalog_item_ids"]:checked').forEach(o=>sum += parseFloat(o.dataset.price||'0')||0);
-   total.value=sum.toFixed(2).replace('.',',');
- }
- box.addEventListener('change',calc); calc();
-})();
-</script>
+{% if current_user.is_admin or current_user.role=='WORKSHOP' %}<section class="panel" style="margin-top:18px"><h3>Catálogo de serviços e peças</h3><p class="muted">O cadastro de serviços e peças agora possui uma tela própria.</p><a class="btn" href="{{url_for('main.maintenance_catalog')}}">Abrir Catálogo da Oficina</a></section>{% endif %}{% endblock %}
