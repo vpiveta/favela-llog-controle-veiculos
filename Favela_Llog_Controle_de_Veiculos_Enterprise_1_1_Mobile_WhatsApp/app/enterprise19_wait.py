@@ -54,12 +54,22 @@ def login_with_wait():
     username = (request.form.get('username') or '').strip()
     password = request.form.get('password') or ''
     plate_value = _plate(request.form.get('plate'))
-    user = User.query.filter_by(username=username).first()
+    user = User.query.filter(db.func.lower(db.func.trim(User.username)) == username.lower()).first()
 
     if not user or not user.active or not user.check_password(password):
         _clear_pending()
         flash('Usuário ou senha inválidos.', 'danger')
         return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
+
+    role = (user.role or '').strip().upper()
+
+    # OFICINA é acesso de equipe: usuário e senha, sem placa e sem QR.
+    if role == 'WORKSHOP':
+        _clear_pending()
+        login_user(user)
+        session.pop('active_vehicle_id', None)
+        session.pop('active_vehicle_justification', None)
+        return redirect(url_for('main.maintenance_new'))
 
     if user.is_admin:
         _clear_pending()
