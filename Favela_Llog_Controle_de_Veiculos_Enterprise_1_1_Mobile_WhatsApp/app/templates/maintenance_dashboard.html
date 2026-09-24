@@ -1,0 +1,15 @@
+{% extends 'base.html' %}{% block content %}
+<header class="page-head"><div><span class="eyebrow">OFICINA</span><h2>Dashboard da Oficina</h2><p>Visão geral das manutenções, serviços e custos registrados.</p></div><a class="btn" href="{{url_for('main.maintenance_new')}}">＋ Nova manutenção</a></header>
+<section class="kpi-grid">
+<div class="kpi"><span>Manutenções</span><strong>{{total_maint}}</strong><small>{{in_progress}} em andamento</small></div>
+<div class="kpi"><span>Concluídas</span><strong>{{completed}}</strong><small>serviços finalizados</small></div>
+<div class="kpi"><span>Serviços</span><strong>{{service_count}}</strong><small>lançamentos com serviço</small></div>
+<div class="kpi"><span>Valor total</span><strong>R$ {{'%.2f'|format(total_value)|replace('.',',')}}</strong><small>manutenções registradas</small></div>
+<div class="kpi"><span>Mão de obra</span><strong>R$ {{'%.2f'|format(labor_value)|replace('.',',')}}</strong><small>valor acumulado</small></div>
+<div class="kpi"><span>Peças</span><strong>R$ {{'%.2f'|format(parts_value)|replace('.',',')}}</strong><small>total estimado fora mão de obra</small></div>
+</section>
+<section class="panel"><div class="section-head"><div><h3>Últimas manutenções</h3><p class="muted">Movimentações recentes da oficina.</p></div></div>
+<div class="table-wrap"><table><thead><tr><th>Data</th><th>Moto</th><th>Serviço</th><th>Status</th><th>Mão de obra</th><th>Total</th></tr></thead><tbody>
+{% for e in recent %}<tr><td>{{e.expense_date.strftime('%d/%m/%Y')}}</td><td><b>{{e.vehicle.plate}}</b></td><td>{{e.maintenance.description}}</td><td>{{'Concluída' if e.maintenance.status=='COMPLETED' else 'Em andamento'}}</td><td>R$ {{'%.2f'|format(e.maintenance.labor_amount or 0)|replace('.',',')}}</td><td><b>R$ {{'%.2f'|format(e.amount or 0)|replace('.',',')}}</b></td></tr>{% else %}<tr><td colspan="6">Nenhuma manutenção registrada.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}
