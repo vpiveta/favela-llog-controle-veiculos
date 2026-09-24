@@ -368,6 +368,8 @@ def maintenance_dashboard():
         Expense.expense_type == 'MAINTENANCE',
         Expense.is_deleted.is_(False)
     )
+    if current_user.role == 'WORKSHOP':
+        q = q.filter(Expense.created_by_id == current_user.id)
     if not current_user.is_global_admin:
         q = q.filter(Expense.base_code == current_user.base_code)
     rows = q.order_by(Expense.expense_date.desc(), Expense.id.desc()).all()
@@ -401,6 +403,7 @@ def maintenance_monthly_report():
     except Exception: start=date(local_today().year,local_today().month,1)
     end=date(start.year+1,1,1) if start.month==12 else date(start.year,start.month+1,1)
     q=Expense.query.join(MaintenanceDetail).filter(Expense.expense_type=='MAINTENANCE',Expense.is_deleted.is_(False),Expense.expense_date>=start,Expense.expense_date<end)
+    if current_user.role == 'WORKSHOP': q=q.filter(Expense.created_by_id==current_user.id)
     if not current_user.is_global_admin: q=q.filter(Expense.base_code==current_user.base_code)
     rows=q.order_by(Expense.expense_date.desc(),Expense.id.desc()).all()
     from decimal import Decimal
