@@ -8,7 +8,7 @@ from urllib.parse import quote
 from flask import Blueprint, current_app, flash, redirect, render_template, request, send_from_directory, send_file, url_for, abort, jsonify
 from flask_login import current_user, login_required, login_user, logout_user
 from werkzeug.utils import secure_filename
-from .models import db, User, Vehicle, Expense, FuelDetail, MaintenanceDetail, MaintenancePartCatalog, OilChange, AlertRecipient, StoredFile, DailyChecklist, AdminNotification, OilAlertStatus, AuditLog
+from .models import db, User, Vehicle, Expense, FuelDetail, MaintenanceDetail, MaintenancePartCatalog, MaintenanceCatalogItem, OilChange, AlertRecipient, StoredFile, DailyChecklist, AdminNotification, OilAlertStatus, AuditLog
 from .storage import is_configured as storage_is_configured, upload_bytes, download_bytes, SupabaseStorageError
 from .time_utils import local_today, utc_now
 
@@ -338,6 +338,25 @@ def maintenance_part_new():
         db.session.rollback(); flash(str(exc), 'danger')
     return redirect(url_for('main.maintenance_new'))
 
+@main_bp.route('/maintenance/catalog/new', methods=['POST'])
+@login_required
+def maintenance_catalog_new():
+    if not (current_user.is_admin or current_user.role == 'WORKSHOP'):
+        abort(403)
+    try:
+        name = (request.form.get('catalog_name') or '').strip()
+        item_type = (request.form.get('catalog_type') or 'SERVICE').strip().upper()
+        if not name: raise ValueError('Informe o nome do serviço ou peça.')
+        if item_type not in {'SERVICE','PART'}: raise ValueError('Tipo inválido.')
+        price = parse_money('catalog_price', 'valor padrão')
+        db.session.add(MaintenanceCatalogItem(name=name, item_type=item_type, category=(request.form.get('catalog_category') or '').strip() or None, default_price=price, base_code=current_user.base_code))
+        db.session.commit()
+        flash('Item cadastrado no catálogo da oficina.', 'success')
+    except Exception as exc:
+        db.session.rollback(); flash(str(exc), 'danger')
+    return redirect(url_for('main.maintenance_new'))
+
+
 @main_bp.route('/maintenance/new', methods=['GET','POST'])
 @login_required
 def maintenance_new():
@@ -361,7 +380,10 @@ def maintenance_new():
                 raise ValueError('Informe a quilometragem atual da moto.')
             if vehicle.current_km is not None and km < vehicle.current_km:
                 raise ValueError(f'O KM informado ({km}) não pode ser menor que o KM atual da moto ({vehicle.current_km}).')
-            amount = parse_money('amount', 'valor total da manutenção')
+            selected_ids = [int(x) for x in request.form.getlist('catalog_item_ids') if str(x).isdigit()]
+            selected_items = MaintenanceCatalogItem.query.filter(MaintenanceCatalogItem.id.in_(selected_ids), MaintenanceCatalogItem.active.is_(True)).all() if selected_ids else []
+            catalog_total = sum((Decimal(str(x.default_price or 0)) for x in selected_items), Decimal('0'))
+            amount = catalog_total if selected_items else parse_money('amount', 'valor total da manutenção')
             is_oil_change = request.form.get('is_oil_change') == 'on'
             oil_amount = parse_money('oil_amount', 'valor da troca de óleo') if is_oil_change else None
             if oil_amount is not None and oil_amount > amount:
@@ -377,13 +399,13 @@ def maintenance_new():
             )
             exp.maintenance = MaintenanceDetail(
                 start_date=start, same_day=same, end_date=end,
-                description=request.form['description'].strip(),
+                description=request.form['description'].strip() or '; '.join(x.name for x in selected_items),
                 workshop=request.form.get('workshop','').strip() or None,
                 status=maintenance_status, is_oil_change=is_oil_change,
                 oil_amount=oil_amount,
                 maintenance_type=request.form.get('maintenance_type','').strip() or None,
                 labor_amount=(parse_money('labor_amount','valor da mão de obra') if (request.form.get('labor_amount') or '').strip() else None),
-                parts_description=request.form.get('parts_description','').strip() or None,
+                parts_description=request.form.get('parts_description','').strip() or ', '.join(x.name for x in selected_items if x.item_type == 'PART') or None,
             )
             if km and km > (vehicle.current_km or 0): vehicle.current_km = km
             vehicle.status = 'AVAILABLE' if same or exp.maintenance.status == 'COMPLETED' else 'MAINTENANCE'
@@ -402,7 +424,8 @@ def maintenance_new():
         except Exception as exc:
             db.session.rollback(); flash(str(exc), 'danger')
     parts_catalog = MaintenancePartCatalog.query.filter_by(active=True).order_by(MaintenancePartCatalog.name).all()
-    return render_template('driver/maintenance_form.html', vehicles=vehicles, vehicle=vehicle, today=local_today().isoformat(), parts_catalog=parts_catalog)
+    maintenance_catalog = MaintenanceCatalogItem.query.filter_by(active=True).order_by(MaintenanceCatalogItem.item_type, MaintenanceCatalogItem.name).all()
+    return render_template('driver/maintenance_form.html', vehicles=vehicles, vehicle=vehicle, today=local_today().isoformat(), parts_catalog=parts_catalog, maintenance_catalog=maintenance_catalog)
 
 
 @main_bp.route('/admin/maintenance/<int:expense_id>/complete', methods=['POST'])
