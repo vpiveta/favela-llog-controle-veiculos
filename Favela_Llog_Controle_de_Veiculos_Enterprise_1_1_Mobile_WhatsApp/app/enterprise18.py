@@ -257,6 +257,48 @@ def edit_user(user_id):
     return redirect(url_for('main.users'))
 
 
+@enterprise18_bp.route('/admin/users/<int:user_id>/delete-workshop', methods=['POST'])
+@login_required
+def delete_workshop_user(user_id):
+    _admin_required()
+    user = db.session.get(User, user_id) or abort(404)
+    if is_base_admin() and user.base_code != current_base():
+        abort(403)
+    if (user.role or '').strip().upper() != 'WORKSHOP':
+        flash('A exclusão definitiva está liberada somente para usuários do tipo OFICINA.', 'danger')
+        return redirect(url_for('main.users'))
+
+    # Preserva o histórico operacional: se o usuário já estiver referenciado,
+    # ele é desativado e renomeado internamente em vez de quebrar chaves estrangeiras.
+    refs = (
+        Expense.query.filter(
+            (Expense.created_by_id == user.id) |
+            (Expense.responsible_driver_id == user.id) |
+            (Expense.authorized_by_id == user.id) |
+            (Expense.deleted_by_id == user.id)
+        ).first()
+        or StoredFile.query.filter_by(uploaded_by_id=user.id).first()
+        or AuditLog.query.filter_by(user_id=user.id).first()
+    )
+    try:
+        if refs:
+            original_username = user.username
+            user.active = False
+            user.access_blocked = True
+            user.username = f'deleted_workshop_{user.id}_{original_username}'[:80]
+            user.name = f'OFICINA REMOVIDA #{user.id}'
+            db.session.commit()
+            flash('Usuário OFICINA removido do acesso. O histórico existente foi preservado.', 'success')
+        else:
+            db.session.delete(user)
+            db.session.commit()
+            flash('Usuário OFICINA excluído definitivamente.', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        flash(f'Não foi possível excluir o usuário: {exc}', 'danger')
+    return redirect(url_for('main.users'))
+
+
 @enterprise18_bp.route('/admin/checklist-report')
 @login_required
 def checklist_report():
