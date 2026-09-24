@@ -39,17 +39,17 @@ def active_vehicle():
 
 def _login_view():
     if current_user.is_authenticated:
-        return redirect(url_for('main.dashboard'))
+        return redirect(url_for('main.maintenance_new') if (current_user.role or '').strip().upper() == 'WORKSHOP' else url_for('main.dashboard'))
+
     plate_value = _plate(request.args.get('plate'))
     if request.method == 'POST':
         username = request.form.get('username','').strip()
         password = request.form.get('password','')
         access_mode = (request.form.get('access_mode') or '').strip().lower()
-        # A presença do formulário de equipe é determinada também pelo botão enviado.
         if request.form.get('staff_login') == '1':
             access_mode = 'staff'
         plate_value = _plate(request.form.get('plate'))
-        # Login não deve depender de maiúsculas/minúsculas nem espaços no cadastro.
+
         user = User.query.filter(db.func.lower(db.func.trim(User.username)) == username.lower()).first()
         if not user or not user.active or not user.check_password(password):
             flash('Usuário ou senha inválidos.', 'danger')
@@ -57,42 +57,29 @@ def _login_view():
         if getattr(user, 'access_blocked', False):
             flash('Seu acesso está bloqueado. Procure o gerente da base.', 'danger')
             return render_template('auth/login.html', need_justification=False, plate_value=plate_value, username_value=username)
-        # A tela separa explicitamente acesso de equipe e motorista.
-        # No modo EQUIPE, a placa nunca participa da autenticação.
+
         role = (user.role or '').strip().upper()
-        workshop_login = role == 'WORKSHOP'
-        if access_mode == 'staff':
-            # Acesso de equipe não usa veículo. ADM segue ao dashboard e OFICINA à manutenção.
-            if user.is_admin:
-                login_user(user)
-                session.pop('active_vehicle_id', None)
-                session.pop('active_vehicle_justification', None)
-                return redirect(url_for('main.dashboard'))
-            if role != 'WORKSHOP':
-                flash('Este usuário não possui perfil OFICINA.', 'danger')
-                return render_template('auth/login.html', need_justification=False, plate_value='', username_value=username)
+
+        # REGRA EXCLUSIVA DO PERFIL OFICINA: autentica apenas com usuário e senha.
+        # Não lê, valida, seleciona ou exige placa em nenhum ponto.
+        if role == 'WORKSHOP':
             login_user(user)
             session.pop('active_vehicle_id', None)
             session.pop('active_vehicle_justification', None)
             return redirect(url_for('main.maintenance_new'))
+
+        # Administradores também não usam placa.
         if user.is_admin:
             login_user(user)
             session.pop('active_vehicle_id', None)
             session.pop('active_vehicle_justification', None)
             return redirect(url_for('main.dashboard'))
-        if workshop_login:
-            login_user(user)
-            session.pop('active_vehicle_id', None)
-            session.pop('active_vehicle_justification', None)
-            return redirect(url_for('main.maintenance_new'))
-        # A placa só é exigida para um motorista que chegou pelo fluxo do QR Code.
-        # Sem access_mode=driver, nunca transformar o login comum em validação de placa.
-        if access_mode != 'driver':
-            flash('Para motorista, leia primeiro o QR Code da moto. Oficina e ADM devem usar a entrada de equipe.', 'danger')
+
+        # A partir daqui só existe fluxo de MOTORISTA, obrigatoriamente iniciado pelo QR.
+        if access_mode != 'driver' or not plate_value:
+            flash('Motorista: leia primeiro o QR Code da moto para continuar.', 'danger')
             return render_template('auth/login.html', need_justification=False, plate_value='', username_value=username)
-        if not plate_value:
-            flash('Leia novamente o QR Code da moto para continuar.', 'danger')
-            return render_template('auth/login.html', need_justification=False, plate_value='', username_value=username)
+
         vehicle = Vehicle.query.filter_by(plate=plate_value, vehicle_type='MOTORCYCLE').first()
         if not vehicle or vehicle.base_code != user.base_code:
             flash('Placa não encontrada na sua base.', 'danger')
@@ -102,17 +89,17 @@ def _login_view():
             session['active_vehicle_id'] = vehicle.id
             session['active_vehicle_justification'] = ''
             return redirect(url_for('main.dashboard'))
+
         owner_name = vehicle.driver.name if vehicle.driver else 'outro motorista'
         justification = (request.form.get('justification') or '').strip()
         if not justification:
             flash(f'A moto {vehicle.plate} está vinculada a {owner_name}. Informe o motivo do uso temporário.', 'warning')
             return render_template('auth/login.html', need_justification=True, owner_name=owner_name, plate_value=plate_value, username_value=username)
-        # Uso temporário não bloqueia o motorista aguardando aprovação.
-        # O checklist registra a moto, responsável e justificativa e gera o alerta administrativo.
         login_user(user)
         session['active_vehicle_id'] = vehicle.id
         session['active_vehicle_justification'] = justification
         return redirect(url_for('main.dashboard'))
+
     return render_template('auth/login.html', need_justification=False, plate_value=plate_value)
 
 @enterprise19_bp.post('/admin/vehicle-use/<int:req_id>/<decision>')
