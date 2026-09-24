@@ -69,7 +69,7 @@ def login_with_wait():
         login_user(user)
         session.pop('active_vehicle_id', None)
         session.pop('active_vehicle_justification', None)
-        return redirect(url_for('main.maintenance_new'))
+        return redirect(url_for('main.maintenance_dashboard'))
 
     if user.is_admin:
         _clear_pending()
