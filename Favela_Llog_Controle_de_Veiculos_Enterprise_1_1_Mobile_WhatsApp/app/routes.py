@@ -384,6 +384,30 @@ def maintenance_dashboard():
         service_count=service_count, recent=rows[:12])
 
 
+@main_bp.route('/maintenance/catalog')
+@login_required
+def maintenance_catalog():
+    if not (current_user.is_admin or current_user.role == 'WORKSHOP'): abort(403)
+    items = MaintenanceCatalogItem.query.filter_by(active=True).order_by(MaintenanceCatalogItem.item_type, MaintenanceCatalogItem.name).all()
+    return render_template('maintenance_catalog.html', items=items)
+
+@main_bp.route('/maintenance/monthly')
+@login_required
+def maintenance_monthly_report():
+    if not (current_user.is_admin or current_user.role == 'WORKSHOP'): abort(403)
+    from datetime import date
+    raw = (request.args.get('month') or local_today().strftime('%Y-%m')).strip()
+    try: y,m = [int(x) for x in raw.split('-')]; start=date(y,m,1)
+    except Exception: start=date(local_today().year,local_today().month,1)
+    end=date(start.year+1,1,1) if start.month==12 else date(start.year,start.month+1,1)
+    q=Expense.query.join(MaintenanceDetail).filter(Expense.expense_type=='MAINTENANCE',Expense.is_deleted.is_(False),Expense.expense_date>=start,Expense.expense_date<end)
+    if not current_user.is_global_admin: q=q.filter(Expense.base_code==current_user.base_code)
+    rows=q.order_by(Expense.expense_date.desc(),Expense.id.desc()).all()
+    from decimal import Decimal
+    total=sum((Decimal(str(e.amount or 0)) for e in rows),Decimal('0'))
+    labor=sum((Decimal(str(e.maintenance.labor_amount or 0)) for e in rows),Decimal('0'))
+    return render_template('maintenance_monthly.html',rows=rows,month=start.strftime('%Y-%m'),total=total,labor=labor,parts=max(Decimal('0'),total-labor),count=len(rows))
+
 @main_bp.route('/maintenance/new', methods=['GET','POST'])
 @login_required
 def maintenance_new():
