@@ -45,6 +45,9 @@ def _login_view():
         username = request.form.get('username','').strip()
         password = request.form.get('password','')
         access_mode = (request.form.get('access_mode') or '').strip().lower()
+        # A presença do formulário de equipe é determinada também pelo botão enviado.
+        if request.form.get('staff_login') == '1':
+            access_mode = 'staff'
         plate_value = _plate(request.form.get('plate'))
         # Login não deve depender de maiúsculas/minúsculas nem espaços no cadastro.
         user = User.query.filter(db.func.lower(db.func.trim(User.username)) == username.lower()).first()
