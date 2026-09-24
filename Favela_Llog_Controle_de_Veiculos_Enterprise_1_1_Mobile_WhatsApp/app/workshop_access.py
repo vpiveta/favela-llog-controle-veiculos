@@ -19,7 +19,12 @@ def init_workshop_access(app):
 
     @app.before_request
     def workshop_only():
-        if not current_user.is_authenticated or current_user.role != 'WORKSHOP':
+        if not current_user.is_authenticated:
+            return None
+        # Motoristas não lançam mais manutenção; somente consultam o status da própria moto.
+        if current_user.role == 'DRIVER' and request.endpoint == 'main.maintenance_new':
+            return redirect(url_for('main.maintenance_monitor'))
+        if current_user.role != 'WORKSHOP':
             return None
         endpoint = request.endpoint or ''
         if endpoint in allowed or endpoint.startswith('static'):
