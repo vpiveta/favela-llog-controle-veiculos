@@ -66,7 +66,7 @@ def _login_view():
             login_user(user)
             session.pop('active_vehicle_id', None)
             session.pop('active_vehicle_justification', None)
-            return redirect(url_for('main.maintenance_new'))
+            return redirect(url_for('main.maintenance_dashboard'))
 
         # Administradores também não usam placa.
         if user.is_admin:
