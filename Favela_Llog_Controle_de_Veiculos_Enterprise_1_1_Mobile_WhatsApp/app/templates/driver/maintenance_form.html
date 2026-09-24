@@ -17,12 +17,11 @@
   <label id="endDateWrap">Data de retirada<input type="date" name="end_date" value="{{request.form.get('end_date','')}}"></label>
   <label>Status<select name="status"><option value="IN_PROGRESS" {% if request.form.get('status')=='IN_PROGRESS' %}selected{% endif %}>Em manutenção</option><option value="COMPLETED" {% if request.form.get('status')=='COMPLETED' %}selected{% endif %}>Concluída</option></select></label>
   <label>Valor total da manutenção (R$)<input id="maintenanceAmount" name="amount" inputmode="decimal" value="{{request.form.get('amount','')}}" placeholder="0,00" required readonly><small>Calculado automaticamente pelos itens selecionados.</small></label>
-  <label class="wide">Serviços e peças realizados
-    <select name="catalog_item_ids" id="maintenanceCatalog" multiple size="8" style="min-height:180px">
-      {% for item in maintenance_catalog %}<option value="{{item.id}}" data-price="{{item.default_price or 0}}" {% if item.id|string in request.form.getlist('catalog_item_ids') %}selected{% endif %}>{{'Serviço' if item.item_type=='SERVICE' else 'Peça'}} · {{item.name}} · R$ {{'%.2f'|format(item.default_price or 0)}}</option>{% endfor %}
-    </select>
-    <small>Selecione um ou vários itens. No computador use Ctrl para múltiplos; no celular toque nos itens. O total é somado automaticamente.</small>
-  </label>
+  <div class="wide"><b>Serviços e peças realizados</b><p class="muted" style="margin:5px 0 10px">Marque tudo o que foi feito. Pode selecionar vários itens; o valor total é somado automaticamente.</p>
+    <div id="maintenanceCatalog" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px">
+      {% for item in maintenance_catalog %}<label style="display:flex;align-items:center;gap:10px;border:1px solid var(--border);padding:12px;border-radius:10px;cursor:pointer"><input type="checkbox" name="catalog_item_ids" value="{{item.id}}" data-price="{{item.default_price or 0}}" {% if item.id|string in request.form.getlist('catalog_item_ids') %}checked{% endif %}><span><b>{{item.name}}</b><br><small>{{'Serviço' if item.item_type=='SERVICE' else 'Peça'}} · R$ {{'%.2f'|format(item.default_price or 0)}}</small></span></label>{% else %}<div class="notice">Nenhum serviço ou peça cadastrado ainda. Cadastre no Catálogo da Oficina abaixo.</div>{% endfor %}
+    </div>
+  </div>
   <label>Quilometragem<input type="number" name="odometer" min="0" value="{{request.form.get('odometer','')}}" required></label>
   <label>Oficina<input name="workshop" value="{{request.form.get('workshop','')}}"></label>
   <label>Tipo da manutenção<select name="maintenance_type"><option value="">Selecione</option><option>Preventiva</option><option>Corretiva</option><option>Elétrica</option><option>Motor</option><option>Freios</option><option>Pneus</option><option>Transmissão / corrente</option><option>Revisão</option><option>Outros</option></select></label>
@@ -43,13 +42,13 @@
 
 <script>
 (function(){
- const sel=document.getElementById('maintenanceCatalog'), total=document.getElementById('maintenanceAmount');
- if(!sel||!total)return;
+ const box=document.getElementById('maintenanceCatalog'), total=document.getElementById('maintenanceAmount');
+ if(!box||!total)return;
  function calc(){
    let sum=0;
-   Array.from(sel.selectedOptions).forEach(o=>sum += parseFloat(o.dataset.price||'0')||0);
+   box.querySelectorAll('input[name="catalog_item_ids"]:checked').forEach(o=>sum += parseFloat(o.dataset.price||'0')||0);
    total.value=sum.toFixed(2).replace('.',',');
  }
- sel.addEventListener('change',calc); calc();
+ box.addEventListener('change',calc); calc();
 })();
 </script>
