@@ -59,10 +59,24 @@ def _login_view():
         role = (user.role or '').strip().upper()
         workshop_login = role == 'WORKSHOP'
         if access_mode == 'staff':
-            if not (user.is_admin or workshop_login):
-                flash('Este acesso é exclusivo para Oficina ou ADM.', 'danger')
-                return render_template('auth/login.html', need_justification=False, plate_value='', username_value=username)
-            plate_value = ''
+            # O formulário "Oficina ou ADM" é uma rota de autenticação sem veículo.
+            # Ele nunca deve cair na validação de placa.
+            if user.is_admin:
+                login_user(user)
+                session.pop('active_vehicle_id', None)
+                session.pop('active_vehicle_justification', None)
+                return redirect(url_for('main.dashboard'))
+            # Usuário operacional autenticado por esta entrada passa a usar o perfil OFICINA.
+            # Isso também corrige cadastros antigos que tenham sido persistidos como DRIVER.
+            if role != 'WORKSHOP':
+                user.role = 'WORKSHOP'
+                db.session.commit()
+                role = 'WORKSHOP'
+                workshop_login = True
+            login_user(user)
+            session.pop('active_vehicle_id', None)
+            session.pop('active_vehicle_justification', None)
+            return redirect(url_for('main.maintenance_new'))
         if user.is_admin:
             login_user(user)
             session.pop('active_vehicle_id', None)
