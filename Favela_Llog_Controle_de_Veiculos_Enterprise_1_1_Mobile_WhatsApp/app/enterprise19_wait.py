@@ -49,7 +49,16 @@ def login_with_wait():
         pending_user = session.get('pending_vehicle_use_user_id')
         if pending_id and pending_user:
             return redirect(url_for('enterprise19_wait.vehicle_use_wait'))
-        return render_template('auth/login.html', need_justification=False, plate_value='')
+
+        # Preserva a placa enviada pelo QR Code (ex.: /login?plate=ABC123).
+        # Sem isso, o override Enterprise 1.9 descartava a placa no GET e
+        # escondia os campos de usuário/senha do motorista.
+        plate_value = _plate(request.args.get('plate'))
+        return render_template(
+            'auth/login.html',
+            need_justification=False,
+            plate_value=plate_value,
+        )
 
     username = (request.form.get('username') or '').strip()
     password = request.form.get('password') or ''
